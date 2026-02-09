@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Factory Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #0f1115;
+      color: #e6e6e6;
+      margin: 0;
+      padding: 2rem;
+    }
+    h1 {
+      margin-bottom: 0.5rem;
+    }
+    button {
+      background: #4f7cff;
+      color: white;
+      border: none;
+      padding: 0.6rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover {
+      opacity: 0.9;
+    }
+    .site {
+      border: 1px solid #2a2f3a;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    .meta {
+      color: #9aa4b2;
+      font-size: 0.9rem;
+      margin-bottom: 0.5rem;
+    }
+    pre {
+      background: #151922;
+      padding: 0.75rem;
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Factory Control</h1>
+  <p class="meta">Trigger and monitor site factory runs</p>
+
+  <div id="sites">Loading sites…</div>
+
+  <script>
+    async function loadSites() {
+      const res = await fetch("/api/sites");
+      const data = await res.json();
+      const container = document.getElementById("sites");
+      container.innerHTML = "";
+
+      (data.sites || []).forEach(site => {
+        const el = document.createElement("div");
+        el.className = "site";
+        el.innerHTML = `
+          <strong>${site.name}</strong>
+          <div class="meta">${site.repo}</div>
+          <button onclick="runFactory('${site.repo}', ${site.default_pages || 5})">
+            Run factory
+          </button>
+          <pre id="status-${site.repo.replace("/", "-")}"></pre>
+        `;
+        container.appendChild(el);
+      });
+    }
+
+    async function runFactory(repo, pages) {
+      const r = await fetch("/api/dispatch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo,
+          pages,
+          mode: "generate"
+        })
+      });
+      const text = await r.text();
+      alert(text);
+      loadStatus(repo);
+    }
+
+    async function loadStatus(repo) {
+      const id = "status-" + repo.replace("/", "-");
+      const el = document.getElementById(id);
+      const r = await fetch(`/api/status?repo=${repo}`);
+      el.textContent = await r.text();
+    }
+
+    loadSites();
+  </script>
+</body>
+</html>
