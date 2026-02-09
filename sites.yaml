@@ -1,0 +1,7 @@
+sites:
+- name: example-camping-4wd
+  repo: YOUR_GH_OWNER/your-site-repo
+  default_pages: 5
+  tags:
+  - camping
+  - 4wd
