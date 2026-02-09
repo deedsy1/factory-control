@@ -49,9 +49,42 @@
   <h1>Factory Control</h1>
   <p class="meta">Trigger and monitor site factory runs</p>
 
+  <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center; margin: 1rem 0 1.5rem;">
+    <button onclick="workerTick()">Process queue (worker tick)</button>
+    <label style="display:flex; gap:.5rem; align-items:center; color:#9aa4b2;">
+      <input type="checkbox" id="dryRun" /> Dry-run
+    </label>
+    <span class="meta" id="workerNote"></span>
+  </div>
+
+  <h2 style="margin-top:0;">Sites</h2>
   <div id="sites">Loading sites…</div>
 
+  <h2>Queue & History</h2>
+  <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center; margin-bottom: .75rem;">
+    <label class="meta">Status:
+      <select id="filterStatus" onchange="loadJobs()">
+        <option value="">(all)</option>
+        <option value="queued">queued</option>
+        <option value="running">running</option>
+        <option value="success">success</option>
+        <option value="failed">failed</option>
+        <option value="canceled">canceled</option>
+      </select>
+    </label>
+    <label class="meta">Repo:
+      <input id="filterRepo" placeholder="owner/repo" style="padding:.4rem .5rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" onkeydown="if(event.key==='Enter'){loadJobs()}" />
+    </label>
+    <button onclick="loadJobs()">Refresh</button>
+  </div>
+
+  <div id="jobs">Loading jobs…</div>
+
   <script>
+    function esc(s){
+      return String(s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+    }
+
     async function loadSites() {
       const res = await fetch("/api/sites");
       const data = await res.json();
@@ -61,31 +94,55 @@
       (data.sites || []).forEach(site => {
         const el = document.createElement("div");
         el.className = "site";
+        const rid = site.repo.replace("/", "-");
         el.innerHTML = `
-          <strong>${site.name}</strong>
-          <div class="meta">${site.repo}</div>
-          <button onclick="runFactory('${site.repo}', ${site.default_pages || 5})">
-            Run factory
-          </button>
-          <pre id="status-${site.repo.replace("/", "-")}"></pre>
+          <strong>${esc(site.name)}</strong>
+          <div class="meta">${esc(site.repo)}</div>
+
+          <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin:.5rem 0;">
+            <label class="meta">Pages:
+              <input id="pages-${rid}" type="number" min="1" max="2000" value="${site.default_pages || 5}" style="width:90px; padding:.4rem .5rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
+            </label>
+            <button onclick="enqueueJob('${site.repo}','${esc(site.name)}')">Enqueue</button>
+            <button onclick="loadStatus('${site.repo}')" style="background:#2f3645;">View Actions status</button>
+          </div>
+
+          <pre id="status-${rid}"></pre>
         `;
         container.appendChild(el);
       });
     }
 
-    async function runFactory(repo, pages) {
-      const r = await fetch("/api/dispatch", {
+    async function enqueueJob(repo, siteName) {
+      const rid = repo.replace("/", "-");
+      const pages = parseInt(document.getElementById(`pages-${rid}`).value || "5", 10);
+      const dry_run = document.getElementById("dryRun").checked;
+
+      const r = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          repo,
-          pages,
-          mode: "generate"
-        })
+        body: JSON.stringify({ repo, site_name: siteName, pages, mode: "generate", dry_run })
       });
-      const text = await r.text();
-      alert(text);
-      loadStatus(repo);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(data.error || `Error (${r.status})`);
+        return;
+      }
+      if (data.dry_run) {
+        alert(`Dry-run OK. Would enqueue job for ${repo}.`);
+      } else {
+        alert(data.reused ? `Reused existing job: ${data.job?.id}` : `Enqueued job: ${data.job_id}`);
+      }
+      loadJobs();
+    }
+
+    async function workerTick() {
+      const el = document.getElementById("workerNote");
+      el.textContent = "Running worker…";
+      const r = await fetch("/api/worker/tick", { method: "POST" });
+      const data = await r.json().catch(() => ({}));
+      el.textContent = r.ok ? (data.note || (data.dispatched ? `Dispatched ${data.repo}` : "OK")) : "Worker error";
+      loadJobs();
     }
 
     async function loadStatus(repo) {
@@ -95,7 +152,50 @@
       el.textContent = await r.text();
     }
 
+    async function loadJobs() {
+      const status = document.getElementById('filterStatus').value;
+      const repo = document.getElementById('filterRepo').value.trim();
+
+      const qs = new URLSearchParams();
+      qs.set('limit','50');
+      if (status) qs.set('status', status);
+      if (repo) qs.set('repo', repo);
+
+      const container = document.getElementById('jobs');
+      const r = await fetch(`/api/jobs?${qs.toString()}`);
+      const data = await r.json().catch(() => ({jobs:[]}));
+      const jobs = data.jobs || [];
+
+      if (!jobs.length) {
+        container.innerHTML = `<div class="meta">No jobs.</div>`;
+        return;
+      }
+
+      const rows = jobs.map(j => {
+        const runLink = j.gh_run_url ? `<a href="${esc(j.gh_run_url)}" target="_blank" rel="noopener" style="color:#4f7cff;">run</a>` : '';
+        const err = j.error ? `<div class="meta" style="color:#ff8a8a;">${esc(j.error)}</div>` : '';
+        return `
+          <div class="site">
+            <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+              <div>
+                <strong>${esc(j.site_name || j.repo)}</strong>
+                <div class="meta">${esc(j.repo)} · ${esc(j.status)} · pages=${esc(j.pages)} · ${esc(j.mode)} ${runLink ? '· '+runLink : ''}</div>
+                <div class="meta">${esc(j.created_at)}</div>
+                ${err}
+              </div>
+              <div style="display:flex; gap:.5rem; align-items:center;">
+                <button onclick="workerTick()">tick</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.innerHTML = rows;
+    }
+
     loadSites();
+    loadJobs();
   </script>
 </body>
 </html>

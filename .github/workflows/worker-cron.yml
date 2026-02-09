@@ -1,0 +1,17 @@
+name: control-plane-worker
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # every 10 minutes
+  workflow_dispatch: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call worker tick
+        run: |
+          curl -sS -X POST "${{ secrets.CONTROL_PLANE_BASE_URL }}/api/worker/tick" -H "Content-Type: application/json" || true
+      - name: (Optional) enqueue due schedules
+        run: |
+          curl -sS -X POST "${{ secrets.CONTROL_PLANE_BASE_URL }}/api/cron" -H "Content-Type: application/json" || true
