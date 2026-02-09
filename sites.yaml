@@ -1,7 +1,8 @@
 sites:
-- name: example-camping-4wd
-  repo: YOUR_GH_OWNER/your-site-repo
-  default_pages: 5
-  tags:
-  - camping
-  - 4wd
+  - name: reality-checks
+    repo: deedsy1/reality-checks-factory
+    default_pages: 5
+    tags:
+      - reassurance
+      - evergreen
+      - mental-health
