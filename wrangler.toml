@@ -1,0 +1,9 @@
+name = "factory-control"
+compatibility_date = "2026-02-09"
+
+pages_build_output_dir = "."
+
+[[d1_databases]]
+binding = "DB"
+database_name = "factory_control_db"
+database_id = "7c4e6714-dc61-4ca4-951b-d979a9e44628"
