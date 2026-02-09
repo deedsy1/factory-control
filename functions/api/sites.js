@@ -1,5 +1,96 @@
 import { ghFetch } from "../_lib/github_app.js";
-import YAML from "yaml";
+
+function parseSitesYaml(yamlText) {
+  const lines = String(yamlText || "").split(/\r?\n/);
+
+  const sites = [];
+  let inSites = false;
+  let current = null;
+  let inTags = false;
+
+  const stripQuotes = (s) => s.replace(/^["']|["']$/g, "");
+
+  for (let rawLine of lines) {
+    const line = rawLine.replace(/\t/g, "  ");
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    if (trimmed === "sites:" || trimmed.startsWith("sites:")) {
+      inSites = true;
+      continue;
+    }
+    if (!inSites) continue;
+
+    // New item
+    if (trimmed.startsWith("- ")) {
+      // If this is "- name: xyz" start a new site
+      if (current) sites.push(current);
+      current = {};
+      inTags = false;
+
+      const rest = trimmed.slice(2).trim();
+      if (rest.startsWith("name:")) {
+        current.name = stripQuotes(rest.slice("name:".length).trim());
+      }
+      continue;
+    }
+
+    if (!current) continue;
+
+    // Key: value
+    const m = trimmed.match(/^([A-Za-z0-9_]+)\s*:\s*(.*)$/);
+    if (m) {
+      const key = m[1];
+      let val = m[2] ?? "";
+      val = val.trim();
+
+      if (key === "tags") {
+        current.tags = [];
+        inTags = true;
+        continue;
+      }
+
+      inTags = false;
+
+      // numbers
+      if (key === "default_pages") {
+        const n = parseInt(val, 10);
+        current.default_pages = Number.isFinite(n) ? n : 5;
+        continue;
+      }
+
+      // strings
+      if (val === "" || val === "null") {
+        current[key] = "";
+      } else {
+        current[key] = stripQuotes(val);
+      }
+      continue;
+    }
+
+    // Tags list items (expects "- camping")
+    if (inTags && trimmed.startsWith("- ")) {
+      const tag = stripQuotes(trimmed.slice(2).trim());
+      if (tag) current.tags.push(tag);
+      continue;
+    }
+  }
+
+  if (current) sites.push(current);
+
+  // Filter minimum shape
+  const cleaned = sites
+    .filter((s) => s && s.repo)
+    .map((s) => ({
+      name: s.name || s.repo,
+      repo: s.repo,
+      default_pages: s.default_pages ?? 5,
+      tags: Array.isArray(s.tags) ? s.tags : [],
+    }));
+
+  return { sites: cleaned };
+}
 
 export async function onRequestGet({ env }) {
   const repo = env.SITES_REPO;
@@ -20,7 +111,7 @@ export async function onRequestGet({ env }) {
   }
 
   const raw = atob(String(data.content).replace(/\n/g, ""));
-  const parsed = YAML.parse(raw) || { sites: [] };
+  const parsed = parseSitesYaml(raw);
 
   return new Response(JSON.stringify(parsed), {
     status: 200,
