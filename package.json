@@ -1,0 +1,8 @@
+{
+  "name": "factory-control",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "yaml": "^2.5.0"
+  }
+}
