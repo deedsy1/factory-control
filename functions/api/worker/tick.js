@@ -1,4 +1,5 @@
 import { ghFetch } from "../../_lib/github_app.js";
+import { parseYAML } from "../../_lib/yaml_lite.js";
 import { json, requireDB, nowIso } from "../../_lib/d1.js";
 
 function parseIntSafe(v, d) {
@@ -6,6 +7,41 @@ function parseIntSafe(v, d) {
   return Number.isFinite(n) ? n : d;
 }
 
+
+async function ensureSettings(db) {
+  await db.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)").run();
+}
+
+async function getSetting(db, key, defVal = null) {
+  await ensureSettings(db);
+  const row = await db.prepare("SELECT value FROM settings WHERE key=? LIMIT 1").bind(key).first();
+  return row?.value ?? defVal;
+}
+
+async function loadSitesIndex(env) {
+  const repo = env.SITES_REPO;
+  const path = env.SITES_PATH || "sites.yaml";
+  if (!repo) return new Map();
+  const url = `https://api.github.com/repos/${repo}/contents/${encodeURIComponent(path)}`;
+  const r = await ghFetch(env, url, { method: "GET" });
+  if (!r.ok) return new Map();
+  const data = await r.json();
+  const decoded = atob((data.content || "").replace(/\n/g, ""));
+  const parsed = parseYAML(decoded) || {};
+  const sites = Array.isArray(parsed.sites) ? parsed.sites : [];
+  const byRepo = new Map();
+  for (const s of sites) {
+    if (!s || !s.repo) continue;
+    byRepo.set(String(s.repo).trim(), s);
+  }
+  return byRepo;
+}
+
+function isPausedOrFrozen(site) {
+  const paused = !!site?.paused;
+  const frozen = !!site?.frozen;
+  return { paused, frozen };
+}
 async function releaseLock(db, repo) {
   await db.prepare("DELETE FROM site_locks WHERE repo=?").bind(repo).run();
 }
@@ -125,6 +161,11 @@ async function dispatchJobToGitHub(env, repo, payload) {
 
 export async function onRequestPost({ env }) {
   const db = requireDB(env);
+  const dispatchDisabled = (await getSetting(db, 'dispatch_disabled', '0')) === '1';
+  if (dispatchDisabled) {
+    return json({ ok: true, note: 'dispatch disabled', dispatch_disabled: true });
+  }
+  const sitesByRepo = await loadSitesIndex(env);
 
   const maxRunning = parseIntSafe(env.MAX_RUNNING, 3);
   const lockTtl = parseIntSafe(env.LOCK_TTL_MINUTES, 120);
@@ -140,14 +181,20 @@ export async function onRequestPost({ env }) {
   }
 
   // 2) claim next queued job
-  const job = await db
+  const candidates = await db
     .prepare(
-      "SELECT id, repo, payload_json, event_type FROM jobs WHERE status='queued' ORDER BY priority DESC, created_at ASC LIMIT 1"
+      "SELECT id, repo, payload_json, event_type FROM jobs WHERE status='queued' ORDER BY priority DESC, created_at ASC LIMIT 25"
     )
-    .first();
+    .all();
+
+  const job = (candidates.results || []).find((j) => {
+    const site = sitesByRepo.get(j.repo);
+    const st = isPausedOrFrozen(site);
+    return !st.paused && !st.frozen;
+  });
 
   if (!job) {
-    return json({ ok: true, note: "no queued jobs", running: runningCount, polled });
+    return json({ ok: true, note: "no runnable queued jobs (or all paused/frozen)", running: runningCount, polled });
   }
 
   // 3) acquire repo lock

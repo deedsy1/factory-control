@@ -1,0 +1,25 @@
+gates:
+  v1:
+    description: "Strict outline + frontmatter + forbidden scan"
+    patch:
+      gates:
+        required_frontmatter:
+          - title
+          - slug
+          - summary
+          - description
+          - date
+          - hub
+          - page_type
+          - gen_version
+          - contract_hash
+          - prompt_hash
+        allow_extra_h2: false
+        min_faq: 4
+        max_faq: 6
+        forbid_phrases:
+          - "as an ai"
+          - "i cannot"
+          - "i can't"
+          - "consult a professional"
+          - "this is not medical advice"

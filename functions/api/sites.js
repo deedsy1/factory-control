@@ -1,4 +1,7 @@
+// NOTE: this file lives at functions/api/sites.js. Shared helpers live at functions/_lib/*
+// so the correct relative import is ../_lib/...
 import { ghFetch } from "../_lib/github_app.js";
+import { parseYAML } from "../_lib/yaml_lite.js";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -6,83 +9,24 @@ function json(data, init = {}) {
   return new Response(JSON.stringify(data, null, 2), { ...init, headers });
 }
 
-// Minimal YAML parser for our simple sites.yaml structure (no external deps).
-function parseSitesYaml(text) {
-  const sites = [];
-  const lines = String(text || "")
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((l) => l.replace(/\t/g, "  "));
-
-  let cur = null;
-  let inTags = false;
-  let inAds = false;
-
-  const commit = () => {
-    if (!cur) return;
-    if (cur.pages_total != null) {
-      const n = Number(cur.pages_total);
-      cur.pages_total = Number.isFinite(n) ? n : null;
-    }
-    if (cur.ads && typeof cur.ads.eligible === "string") {
-      cur.ads.eligible = cur.ads.eligible.toLowerCase() === "true";
-    }
-    sites.push(cur);
-  };
-
-  for (const raw of lines) {
-    const line = raw.replace(/\s+#.*$/, ""); // strip trailing comments
-    if (!line.trim()) continue;
-
-    if (/^\s*-\s+name\s*:\s*/.test(line)) {
-      commit();
-      cur = { name: line.split(":")[1].trim(), tags: [], ads: { eligible: false } };
-      inTags = false;
-      inAds = false;
-      continue;
-    }
-    if (!cur) continue;
-
-    // Arrays
-    if (/^\s*tags\s*:\s*$/.test(line)) {
-      inTags = true;
-      inAds = false;
-      continue;
-    }
-    if (inTags && /^\s*-\s+/.test(line)) {
-      cur.tags.push(line.replace(/^\s*-\s+/, "").trim());
-      continue;
-    }
-
-    // Ads block
-    if (/^\s*ads\s*:\s*$/.test(line)) {
-      inAds = true;
-      inTags = false;
-      cur.ads = cur.ads || { eligible: false };
-      continue;
-    }
-    if (inAds && /^\s{2,}[a-zA-Z_]+\s*:\s*/.test(line)) {
-      const [k, ...rest] = line.trim().split(":");
-      const v = rest.join(":").trim();
-      if (k === "eligible") cur.ads.eligible = v;
-      if (k === "provider") cur.ads.provider = v;
-      continue;
-    }
-
-    // Simple key: value at current level
-    const m = line.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.*)$/);
-    if (!m) continue;
-    const key = m[1];
-    const val = m[2].trim();
-    inTags = false;
-    inAds = false;
-
-    if (key === "pages_total") cur.pages_total = val === "" ? null : val;
-    else cur[key] = val;
-  }
-
-  commit();
-  return sites;
+function normalizeSites(raw) {
+  const sites = Array.isArray(raw?.sites) ? raw.sites : [];
+  return sites.map((s) => {
+    const out = { ...s };
+    out.tags = Array.isArray(out.tags) ? out.tags : [];
+    const pt = Number(out.pages_total ?? out.total_pages ?? out.page_total ?? 0);
+    out.pages_total = Number.isFinite(pt) ? pt : 0;
+    const dp = Number(out.default_pages ?? 0);
+    out.default_pages = Number.isFinite(dp) ? dp : 0;
+    out.prompt_version = out.prompt_version || "page_writer@v2";
+    out.paused = !!out.paused;
+    out.frozen = !!out.frozen;
+    out.ads = out.ads || {};
+    out.ads.mode = out.ads.mode || "manual"; // manual|auto
+    out.ads.eligible = !!out.ads.eligible;
+    out.ads.rules = out.ads.rules || { min_pages: 40, min_completion: 0.7 };
+    return out;
+  });
 }
 
 export async function onRequestGet({ env }) {
@@ -91,7 +35,7 @@ export async function onRequestGet({ env }) {
   if (!repo) return json({ ok: false, message: "Set SITES_REPO in Cloudflare env (e.g. deedsy1/factory-control)" }, { status: 400 });
 
   const url = `https://api.github.com/repos/${repo}/contents/${encodeURIComponent(path)}`;
-  const r = await ghFetch(url, env);
+  const r = await ghFetch(env, url);
 
   let data;
   try {
@@ -119,7 +63,8 @@ export async function onRequestGet({ env }) {
   }
 
   const decoded = atob(content.replace(/\n/g, ""));
-  const sites = parseSitesYaml(decoded);
-
-  return json({ ok: true, repo, path, sites });
+  const parsed = parseYAML(decoded) || {};
+  const sites = normalizeSites(parsed);
+  const tags = [...new Set(sites.flatMap((s) => s.tags || []))].sort();
+  return json({ ok: true, repo, path, sites, tags });
 }

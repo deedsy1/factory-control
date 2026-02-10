@@ -1,0 +1,8 @@
+ads_rules:
+  v1:
+    description: "Enable ads when completion>=0.7 and pages_done>=40 (manual override supported)"
+    patch:
+      ads:
+        auto_manage: true
+        min_pages: 40
+        min_completion: 0.7

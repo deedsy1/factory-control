@@ -32,11 +32,20 @@
     .hidden-panel { display:none; margin-top:.75rem; }
     .hidden-panel.open { display:block; }
     code { background:#0f1115; border:1px solid #2a2f3a; padding:.1rem .35rem; border-radius:8px; }
+    body.simple .advanced { display:none; }
+    .progress { height:10px; background:#0f1115; border:1px solid #2a2f3a; border-radius:999px; overflow:hidden; }
+    .progress > div { height:10px; background:#4f7cff; width:0%; }
   </style>
 </head>
 <body>
   <h1>Factory Control</h1>
   <div class="muted">Trigger and monitor site factory runs</div>
+
+  <div class="row" style="margin-top:.75rem;">
+    <button class="secondary" id="uiModeBtn" onclick="toggleUIMode()">Mode: Simple</button>
+    <button class="secondary" id="roadmapBtn" onclick="openRoadmap()">Roadmap V2</button>
+    <span class="muted small" id="uiModeHint">Simple shows day-to-day actions. Advanced unlocks rollout, schedules, failures, and builder tools.</span>
+  </div>
 
   <div class="divider"></div>
 
@@ -44,6 +53,19 @@
   <div class="row" style="margin-bottom:.5rem;">
     <button class="secondary" onclick="loadSites()">Refresh sites</button>
     <span class="muted small" id="sitesStatus">Loading…</span>
+    <label class="row small" style="gap:.5rem;">
+      <span class="muted">Search</span>
+      <input id="siteSearch" placeholder="name or owner/repo" oninput="renderSites()" />
+    </label>
+    <label class="row small" style="gap:.5rem;">
+      <span class="muted">Tag</span>
+      <select id="siteTagFilter" onchange="renderSites()">
+        <option value="">(all)</option>
+      </select>
+    </label>
+    <button class="secondary" id="bulkSelectAllBtn" onclick="toggleSelectAllSites()">Select all</button>
+    <button id="bulkEnqueueBtn" onclick="bulkEnqueueSelected()" disabled>Enqueue selected</button>
+
   </div>
   <div class="row" id="sites"></div>
 
@@ -52,6 +74,7 @@
   <h2>Queue &amp; History</h2>
   <div class="row" style="margin-bottom:.5rem;">
     <button class="secondary" onclick="loadJobs()">Refresh</button>
+    <button class="secondary" onclick="downloadJobsCsv()">Export CSV</button>
     <button class="secondary" onclick="processQueue()">Process queue (worker tick)</button>
 
     <label class="row small" style="gap:.5rem;">
@@ -80,8 +103,9 @@
 
   <div class="divider"></div>
 
-  <h2>Site builder</h2>
-  <div class="card">
+  <div class="advanced">
+  <h2 class="advanced">Site builder</h2>
+  <div class="card advanced">
     <div class="muted small">Configure a site (writes <code>data/site.yaml</code>) and import page plan items (writes <code>data/plan.yaml</code>).</div>
     <div class="divider"></div>
 
@@ -131,8 +155,8 @@ How to tell if you're burned out or just tired
 
   <div class="divider"></div>
 
-  <h2>Contract rollout (prompt + gates)</h2>
-  <div class="card">
+  <h2 class="advanced">Fleet rollout (prompts + gates)</h2>
+  <div class="card advanced">
     <div class="muted small">
       Push a shared <code>core/site_patch.yaml</code> into selected sites by merging into each site's <code>data/site.yaml</code>.
       This is how you roll out updated prompt assumptions + quality gates to many sites at once.
@@ -160,6 +184,32 @@ How to tell if you're burned out or just tired
     <div class="small muted">Select sites for rollout</div>
     <div id="coreTargets" class="row" style="margin-top:.5rem;"></div>
   </div>
+
+  <div class="divider"></div>
+
+  <h2>Fleet extras</h2>
+  <div class="card">
+    <div class="row">
+      <button class="secondary" onclick="loadCoverage()">Refresh coverage</button>
+      <button class="secondary" onclick="loadFailures()">Refresh failure buckets</button>
+      <button class="secondary" onclick="loadPrompts()">Load prompt versions</button>
+      <span class="muted small" id="fleetStatus"></span>
+    </div>
+    <div class="divider"></div>
+    <div class="row">
+      <div style="flex:1; min-width:280px;">
+        <strong>Failure buckets</strong>
+        <div class="muted small">Grouped by cause (auth, rate limits, validation, other).</div>
+        <div id="failureBuckets" class="small" style="margin-top:.5rem;"></div>
+      </div>
+      <div style="flex:1; min-width:280px;">
+        <strong>Prompt versions</strong>
+        <div class="muted small">Stored in <code>core/prompts.yaml</code>. You can roll forward/back per site.</div>
+        <div id="promptVersions" class="small" style="margin-top:.5rem;"></div>
+      </div>
+    </div>
+  </div>
+  </div> <!-- /.advanced -->
 
   <div id="toast" class="toast" style="display:none;"></div>
 
@@ -226,10 +276,22 @@ function renderHiddenPanel() {
     <div class="job-line" style="padding:.5rem 0; border-bottom:1px solid #2a2f3a;">
       <div><code>${esc(id)}</code></div>
       <div class="job-actions">
+        <button class="secondary" onclick="clearHiddenJob('${esc(id)}')">Clear</button>
         <button class="secondary" onclick="unhideJob('${esc(id)}')">Unhide</button>
       </div>
     </div>
   `).join("");
+}
+
+async function clearHiddenJob(id) {
+  // Removes from hidden list + deletes from DB (safe if already gone)
+  const set = getHiddenSet();
+  set.delete(id);
+  localStorage.setItem(HIDDEN_KEY, JSON.stringify(Array.from(set)));
+  renderHiddenPanel();
+  try {
+    await fetch("/api/jobs/delete", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ id }) });
+  } catch {}
 }
 
 function getLastEnqueue() {
@@ -237,6 +299,10 @@ function getLastEnqueue() {
 }
 
 let SITES = [];
+let COVERAGE = new Map();
+let SELECTED_REPOS = new Set();
+let TAGS_CACHE = null;
+
 
 async function readJsonOrText(r) {
   const ct = (r.headers.get("content-type") || "").toLowerCase();
@@ -247,6 +313,74 @@ async function readJsonOrText(r) {
   try { return JSON.parse(text); } catch { return { message: text }; }
 }
 
+
+async function setTotalPages(repo, totalPagesVal) {
+  try {
+    const r = await fetch("/api/sites/update", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ repo, patch: { total_pages: totalPagesVal } })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+    toast("Site updated", "Total pages saved.");
+    await loadSites();
+  } catch(e) {
+    toast("Update error", e.message || String(e));
+  }
+}
+
+async function setDefaultPages(repo, defaultPagesVal) {
+  try {
+    const r = await fetch("/api/sites/update", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ repo, patch: { default_pages: defaultPagesVal } })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+    toast("Site updated", "Default pages saved.");
+    await loadSites();
+  } catch(e) {
+    toast("Update error", e.message || String(e));
+  }
+}
+
+async function downloadJobsCsv() {
+  const status = document.getElementById("statusFilter")?.value || "all";
+  const repo = document.getElementById("repoFilter")?.value || "";
+  const url = new URL(location.origin + "/api/jobs/export");
+  url.searchParams.set("limit","5000");
+  if (status && status !== "all") url.searchParams.set("status", status);
+  if (repo) url.searchParams.set("repo", repo);
+  window.open(url.toString(), "_blank");
+}
+
+async function retryJob(id) {
+  try {
+    const r = await fetch("/api/jobs/retry", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ id }) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || data?.message || r.statusText);
+    toast("Retry", `Re-queued ${id}`);
+    await loadJobs();
+  } catch(e) {
+    toast("Retry error", e.message || String(e));
+  }
+}
+
+async function deleteJob(id) {
+  if (!confirm("Delete this job from history?")) return;
+  try {
+    const r = await fetch("/api/jobs/delete", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ id }) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || data?.message || r.statusText);
+    toast("Deleted", id);
+    await loadJobs();
+  } catch(e) {
+    toast("Delete error", e.message || String(e));
+  }
+}
+
 async function loadSites() {
   const status = document.getElementById("sitesStatus");
   status.textContent = "Loading…";
@@ -255,6 +389,17 @@ async function loadSites() {
     const data = await readJsonOrText(r);
     if (!r.ok) throw new Error(data?.message || data?.error || r.statusText);
     SITES = data.sites || [];
+
+    // Optional: coverage snapshot (done/remaining/completion)
+    try {
+      const rc = await fetch("/api/sites/coverage");
+      const cov = await readJsonOrText(rc);
+      COVERAGE = new Map();
+      if (rc.ok && Array.isArray(cov.coverage)) {
+        for (const c of cov.coverage) COVERAGE.set(c.repo, c);
+      }
+    } catch {}
+
     renderSites();
     renderCoreTargets();
     status.textContent = `Loaded ${SITES.length} site(s).`;
@@ -264,21 +409,160 @@ async function loadSites() {
   }
 }
 
+function normalizeTags(tags) {
+  if (!tags) return [];
+  if (Array.isArray(tags)) return tags.map(t => String(t).trim()).filter(Boolean);
+  return String(tags).split(",").map(t => t.trim()).filter(Boolean);
+}
+
+function refreshTagFilterOptions() {
+  const sel = document.getElementById("siteTagFilter");
+  if (!sel) return;
+  const tags = new Set();
+  for (const s of SITES) for (const t of normalizeTags(s.tags)) tags.add(t);
+  const all = Array.from(tags).sort((a,b)=>a.localeCompare(b));
+  // Only rebuild if changed
+  const key = all.join("|");
+  if (TAGS_CACHE === key) return;
+  TAGS_CACHE = key;
+  const current = sel.value || "";
+  sel.innerHTML = `<option value="">(all)</option>` + all.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+  sel.value = current;
+}
+
+function siteMatchesFilters(s) {
+  const q = (document.getElementById("siteSearch")?.value || "").trim().toLowerCase();
+  const tag = (document.getElementById("siteTagFilter")?.value || "").trim();
+  const nameRepo = `${s.name||""} ${s.repo||""}`.toLowerCase();
+  if (q && !nameRepo.includes(q)) return false;
+  if (tag) {
+    const tags = normalizeTags(s.tags);
+    if (!tags.includes(tag)) return false;
+  }
+  return true;
+}
+
+function toggleSelectAllSites() {
+  const visible = SITES.filter(siteMatchesFilters);
+  const allSelected = visible.length && visible.every(s => SELECTED_REPOS.has(s.repo));
+  if (allSelected) {
+    for (const s of visible) SELECTED_REPOS.delete(s.repo);
+  } else {
+    for (const s of visible) SELECTED_REPOS.add(s.repo);
+  }
+  renderSites();
+}
+
+function setSiteSelected(repo, checked) {
+  if (checked) SELECTED_REPOS.add(repo);
+  else SELECTED_REPOS.delete(repo);
+  const btn = document.getElementById("bulkEnqueueBtn");
+  if (btn) btn.disabled = SELECTED_REPOS.size === 0;
+}
+
+async function bulkEnqueueSelected() {
+  if (!SELECTED_REPOS.size) return;
+  const repos = Array.from(SELECTED_REPOS);
+  const jobs = [];
+  for (const repo of repos) {
+    const s = SITES.find(x => x.repo === repo);
+    if (!s) continue;
+    jobs.push({
+      repo,
+      site_name: s.name || repo,
+      pages: Number(s.default_pages || 5),
+      mode: "generate",
+      template: "default",
+      priority: 0
+    });
+  }
+
+  toast("Bulk enqueue", `Enqueuing ${jobs.length} site(s)…`);
+  try {
+    const r = await fetch("/api/jobs/bulk", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ jobs })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || data?.message || r.statusText);
+    const reused = (data.results || []).filter(x => x.reused).length;
+    toast("Bulk enqueue", `Done. ${reused ? reused + " reused, " : ""}${jobs.length} requested.`);
+    await loadJobs();
+    // Keep selection but you can clear manually
+  } catch (e) {
+    toast("Bulk enqueue error", e.message || String(e));
+  }
+}
+
 function renderSites() {
+  refreshTagFilterOptions();
+
   const container = document.getElementById("sites");
   if (!SITES.length) {
     container.innerHTML = `<div class="muted">No sites found. Check <code>SITES_REPO</code>/<code>SITES_PATH</code>.</div>`;
     return;
   }
-  container.innerHTML = SITES.map(s => {
+
+  const visible = SITES.filter(siteMatchesFilters);
+  const btn = document.getElementById("bulkEnqueueBtn");
+  if (btn) btn.disabled = SELECTED_REPOS.size === 0;
+
+  if (!visible.length) {
+    container.innerHTML = `<div class="muted">No sites match your filters.</div>`;
+    return;
+  }
+
+  container.innerHTML = visible.map(s => {
     const repo = s.repo;
     const adsEligible = !!(s.ads && s.ads.eligible);
     const provider = (s.ads && s.ads.provider) || "none";
+    const tags = normalizeTags(s.tags);
+    const totalPages = Number(s.total_pages || s.pages_total || 0);
+    const defaultPages = Number(s.default_pages || 5);
+    const cov = COVERAGE.get(repo) || null;
+    const done = cov ? Number(cov.done_pages || 0) : 0;
+    const remaining = cov ? Number(cov.remaining || 0) : (totalPages ? Math.max(0, totalPages - done) : 0);
+    const completion = cov ? Number(cov.completion || 0) : (totalPages ? Math.min(1, done/totalPages) : 0);
+    const selected = SELECTED_REPOS.has(repo);
+
     return `
       <div class="card site-card">
-        <div><strong>${esc(s.name || repo)}</strong></div>
-        <div class="muted small" style="margin-top:.25rem;">${esc(repo)}</div>
+        <div class="row" style="justify-content:space-between; align-items:flex-start;">
+          <div>
+            <div><strong>${esc(s.name || repo)}</strong></div>
+            <div class="muted small" style="margin-top:.25rem;">${esc(repo)}</div>
+          </div>
+          <label class="small muted" style="display:flex; gap:.35rem; align-items:center;">
+            <input type="checkbox" ${selected ? "checked" : ""} onchange="setSiteSelected('${esc(repo)}', this.checked)" />
+            select
+          </label>
+        </div>
+
+        ${tags.length ? `<div class="small muted" style="margin-top:.35rem;">Tags: ${tags.map(t=>`<span class="badge">${esc(t)}</span>`).join(" ")}</div>` : ""}
+
+        ${totalPages ? `
+          <div class="small muted" style="margin-top:.35rem;">Coverage: ${done}/${totalPages} (${Math.round(completion*100)}%) • Remaining: ${remaining}</div>
+          <div class="progress" style="margin-top:.35rem;"><div style="width:${Math.round(completion*100)}%"></div></div>
+        ` : ""}
+
         <div class="divider"></div>
+
+        <div class="row" style="justify-content:space-between;">
+          <div class="small">
+            Total pages:
+            <input type="number" min="0" step="1" value="${totalPages || ""}" placeholder="(optional)" style="width:7rem; margin-left:.4rem;"
+              onchange="setTotalPages('${esc(repo)}', this.value)" />
+          </div>
+          <div class="small">
+            Default enqueue:
+            <input type="number" min="1" step="1" value="${defaultPages}" style="width:5rem; margin-left:.4rem;"
+              onchange="setDefaultPages('${esc(repo)}', this.value)" />
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
         <div class="row" style="justify-content:space-between;">
           <div class="small">
             Ads eligible:
@@ -294,9 +578,10 @@ function renderSites() {
             </select>
           </div>
         </div>
+
         <div class="divider"></div>
         <div class="row">
-          <button onclick="enqueue('${esc(repo)}', ${Number(s.default_pages || 5)})">Enqueue (${Number(s.default_pages || 5)})</button>
+          <button onclick="enqueue('${esc(repo)}', ${defaultPages})">Enqueue (${defaultPages})</button>
           <button class="secondary" onclick="enqueue('${esc(repo)}', 1)">Enqueue (1)</button>
         </div>
       </div>
@@ -304,7 +589,7 @@ function renderSites() {
   }).join("");
 }
 
-async function setAdsEligible(repo, eligibleVal) {
+async function setAdsEligible(repo, eligibleVal) {(repo, eligibleVal) {
   const eligible = eligibleVal === "1";
   toast("Ads", `Updating ads eligibility for ${repo}…`);
   try {
@@ -402,6 +687,8 @@ async function loadJobs() {
             </div>
             <div class="job-actions">
               <button class="secondary" onclick="hideJob('${esc(j.id)}')">Hide</button>
+              ${(j.status==="failed"||j.status==="canceled")?`<button class="secondary" onclick="retryJob('${esc(j.id)}')">Retry</button>`:""}
+              <button class="secondary" onclick="deleteJob('${esc(j.id)}')">Delete</button>
             </div>
           </div>
         </div>
@@ -544,9 +831,37 @@ async function pushContract() {
   }
 }
 
+// --- Simple / Advanced UI mode ---
+function getUIMode() {
+  return localStorage.getItem("factory_ui_mode") || "simple";
+}
+function applyUIMode(mode) {
+  const m = (mode === "advanced") ? "advanced" : "simple";
+  document.body.classList.toggle("simple", m === "simple");
+  const btn = document.getElementById("uiModeBtn");
+  if (btn) btn.textContent = `Mode: ${m[0].toUpperCase()+m.slice(1)}`;
+}
+function toggleUIMode() {
+  const next = (getUIMode() === "simple") ? "advanced" : "simple";
+  localStorage.setItem("factory_ui_mode", next);
+  applyUIMode(next);
+}
+
+applyUIMode(getUIMode());
 updateHiddenCount();
 loadSites();
 loadJobs();
+
+function openRoadmap(){
+  const el = document.getElementById('roadmapModal');
+  const pre = document.getElementById('roadmapText');
+  pre.textContent = "V2.1 \u2014 Operate 20\u2013200 sites without pain\n- Fleet controls: tags + bulk select + bulk actions (run/pause/push/hide)\n- Per-site state: paused/frozen + notes + owners\n- Coverage: target pages / done / remaining / % complete\n\nV2.2 \u2014 Contracts + rollouts you can trust\n- Versioned prompt contracts: core/prompts.yaml \u2192 pick version per site\n- Versioned gate/filter contracts: push to selected sites\n- Dry-run summary: what will change before enqueue\n\nV2.3 \u2014 Monetization automation\n- Ads rules engine: auto-enable ads when completion>=X% and min_pages>=Y (manual override)\n- Monetization readiness badge in UI (eligible / not yet)\n\nV2.4 \u2014 Unattended reliability\n- Failure buckets + retry all in bucket\n- Schedule presets (weekly growth / nightly retry / monthly refresh)\n- Global kill switch (pause all dispatch) + rate limit guardrails\n\nV2.5 \u2014 Factory becomes a real website creator\n- Idea \u2192 Site wizard: niche \u2192 site skeleton + page list + contracts \u2192 bootstrap + queue\n";
+  el.style.display = 'block';
+}
+function closeRoadmap(){
+  document.getElementById('roadmapModal').style.display = 'none';
+}
+
 </script>
 </body>
 </html>
