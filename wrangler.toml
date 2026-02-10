@@ -9,5 +9,5 @@ database_name = "factory_control_db"
 database_id = "7c4e6714-dc61-4ca4-951b-d979a9e44628"
 
 [vars]
-SITES_REPO = "deedsy1/reality-checks-factory"
+SITES_REPO = "deedsy1/factory-control"
 SITES_PATH = "sites.yaml"
