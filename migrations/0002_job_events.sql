@@ -1,5 +1,3 @@
--- v2 scaffold: append-only job event timeline (useful for debugging + UI history)
-
 CREATE TABLE IF NOT EXISTS job_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id TEXT NOT NULL,
@@ -9,4 +7,5 @@ CREATE TABLE IF NOT EXISTS job_events (
   data_json TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_job_events_job_ts ON job_events(job_id, ts);
+CREATE INDEX IF NOT EXISTS idx_job_events_job_ts
+  ON job_events(job_id, ts);
