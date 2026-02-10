@@ -6,3 +6,8 @@ sites:
       - reassurance
       - evergreen
       - mental-health
+
+# Optional per-site ads config
+# ads:
+#   eligible: false
+#   provider: none

@@ -1,0 +1,33 @@
+# This patch is merged into each site's data/site.yaml during contract rollouts.
+# Keep changes additive/backward compatible when possible.
+
+generation:
+  # Bump this when you materially change prompt expectations or gating rules.
+  gen_version: 3
+
+  # Example: tighten forbidden words list and expand over time
+  forbidden_words:
+    - diagnose
+    - diagnosis
+    - prescribed
+    - guaranteed
+    - sue
+    - medical advice
+    - legal advice
+    - financial advice
+
+gates:
+  # Stronger default gates (the site repo's quality_gates.py should read these)
+  required_frontmatter:
+    - title
+    - slug
+    - summary
+    - description
+    - date
+    - hub
+    - page_type
+    - gen_version
+    - contract_hash
+    - prompt_hash
+  allow_extra_h2: false
+  min_faq: 4

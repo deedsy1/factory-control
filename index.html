@@ -5,385 +5,539 @@
   <title>Factory Control</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body {
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      background: #0f1115;
-      color: #e6e6e6;
-      margin: 0;
-      padding: 2rem;
-    }
-    h1 {
-      margin-bottom: 0.5rem;
-    }
-    button {
-      background: #4f7cff;
-      color: white;
-      border: none;
-      padding: 0.6rem 1rem;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-    button:hover {
-      opacity: 0.9;
-    }
-    .site {
-      border: 1px solid #2a2f3a;
-      border-radius: 8px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-    }
-    .meta {
-      color: #9aa4b2;
-      font-size: 0.9rem;
-      margin-bottom: 0.5rem;
-    }
-    pre {
-      background: #151922;
-      padding: 0.75rem;
-      border-radius: 6px;
-      overflow-x: auto;
-    }
-  
-    .badge{
-      display:inline-block;
-      padding:.15rem .5rem;
-      border-radius:999px;
-      font-size:.75rem;
-      border:1px solid #2a2f3a;
-      background:#151922;
-      color:#9aa4b2;
-      margin-left:.5rem;
-    }
-    .badge.reused{ border-color:#d6b36a; color:#ffd58a; }
-    .badge.new{ border-color:#4f7cff; color:#9fb7ff; }
-
-    .highlight{
-      outline:2px solid rgba(79,124,255,.55);
-      box-shadow:0 0 0 4px rgba(79,124,255,.12);
-    }
-
-    .danger{ background:#b33a3a; }
-    .danger:hover{ opacity:.9; }
-    .secondary{ background:#2f3645; }
-
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0f1115; color:#e6e6e6; margin:0; padding:2rem; }
+    h1 { margin:0 0 .25rem 0; }
+    h2 { margin: 1.5rem 0 .5rem; font-size: 1.1rem; }
+    a { color:#9fb7ff; }
+    .muted { color:#9aa4b2; }
+    .row { display:flex; gap:1rem; flex-wrap:wrap; align-items:center; }
+    .card { background:#151922; border:1px solid #2a2f3a; border-radius:14px; padding:1rem; }
+    .site-card { width: 360px; }
+    button { background:#4f7cff; color:white; border:none; padding:.55rem .85rem; border-radius:10px; cursor:pointer; }
+    button.secondary { background:#222838; color:#e6e6e6; border:1px solid #2a2f3a; }
+    button.danger { background:#8b2d2d; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    input, textarea, select { background:#0f1115; color:#e6e6e6; border:1px solid #2a2f3a; border-radius:10px; padding:.5rem .6rem; }
+    textarea { width:100%; min-height: 110px; }
+    .pill { display:inline-block; padding:.15rem .5rem; border:1px solid #2a2f3a; border-radius:999px; font-size:.75rem; color:#9aa4b2; margin-left:.4rem; }
+    .pill.reused { border-color:#d6b36a; color:#ffd58a; }
+    .pill.new { border-color:#4f7cff; color:#9fb7ff; }
+    .highlight { outline:2px solid rgba(79,124,255,.55); box-shadow:0 0 0 4px rgba(79,124,255,.12); }
+    .divider { height:1px; background:#2a2f3a; margin:1rem 0; }
+    .toast { position:fixed; bottom:18px; right:18px; background:#151922; border:1px solid #2a2f3a; padding:.75rem 1rem; border-radius:12px; max-width: 460px; }
+    .toast strong { display:block; margin-bottom:.25rem; }
+    .job-line { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; }
+    .job-actions { display:flex; gap:.5rem; flex-wrap:wrap; justify-content:flex-end; }
+    .small { font-size:.85rem; }
+    .hidden-panel { display:none; margin-top:.75rem; }
+    .hidden-panel.open { display:block; }
+    code { background:#0f1115; border:1px solid #2a2f3a; padding:.1rem .35rem; border-radius:8px; }
   </style>
 </head>
 <body>
   <h1>Factory Control</h1>
-  <p class="meta">Trigger and monitor site factory runs</p>
+  <div class="muted">Trigger and monitor site factory runs</div>
 
-  <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center; margin: 1rem 0 1.5rem;">
-    <button onclick="workerTick()">Process queue (worker tick)</button>
-    <label style="display:flex; gap:.5rem; align-items:center; color:#9aa4b2;">
-      <input type="checkbox" id="dryRun" /> Dry-run
+  <div class="divider"></div>
+
+  <h2>Sites</h2>
+  <div class="row" style="margin-bottom:.5rem;">
+    <button class="secondary" onclick="loadSites()">Refresh sites</button>
+    <span class="muted small" id="sitesStatus">Loading…</span>
+  </div>
+  <div class="row" id="sites"></div>
+
+  <div class="divider"></div>
+
+  <h2>Queue &amp; History</h2>
+  <div class="row" style="margin-bottom:.5rem;">
+    <button class="secondary" onclick="loadJobs()">Refresh</button>
+    <button class="secondary" onclick="processQueue()">Process queue (worker tick)</button>
+
+    <label class="row small" style="gap:.5rem;">
+      <input type="checkbox" id="dryRun" />
+      Dry-run
     </label>
-    <span class="meta" id="workerNote"></span>
+
+    <button class="secondary" id="hiddenToggleBtn" onclick="toggleHiddenPanel()">Hidden (0)</button>
+    <span class="muted small" id="jobsStatus"></span>
   </div>
 
-  <h2 style="margin-top:0;">Sites</h2>
-  <div id="sites">Loading sites…</div>
-
-  <h2>Site Builder</h2>
-  <div class="site ${isLast ? "highlight" : ""}">
-    <strong>Configure a site from a niche</strong>
-    <div class="meta">This writes <code>data/site.yaml</code> into an existing site repo (created from your factory template).</div>
-    <div style="display:flex; gap:.75rem; flex-wrap:wrap; margin-top:.75rem; align-items:center;">
-      <input id="cfgRepo" placeholder="owner/repo (existing site repo)" style="min-width:260px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
-      <input id="cfgTitle" placeholder="Site title (niche name)" style="min-width:220px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
-      <input id="cfgDesc" placeholder="Meta description (optional)" style="min-width:320px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
-      <input id="cfgTheme" placeholder="Theme pack (e.g. calm-paper)" style="min-width:220px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
-      <button onclick="configureSite()">Write data/site.yaml</button>
-    </div>
-    <div class="meta" id="cfgNote" style="margin-top:.5rem;"></div>
-  </div>
-
-  <div class="site" style="margin-top:1rem;">
-    <strong>Import pages into a site plan</strong>
-    <div class="meta">Paste titles (one per line) or upload a .txt. This appends to <code>data/plan.yaml</code> with <code>status: todo</code>.</div>
-    <div style="display:flex; gap:.75rem; flex-wrap:wrap; margin-top:.75rem; align-items:center;">
-      <input id="planRepo" placeholder="owner/repo (site repo)" style="min-width:260px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
-      <input id="planHub" placeholder="hub (optional)" style="min-width:160px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
-      <input id="planType" placeholder="page_type (optional)" style="min-width:160px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
-      <input id="planFile" type="file" accept=".txt" />
-      <button onclick="importPlan()">Import titles</button>
-    </div>
-    <textarea id="planTitles" placeholder="Paste page titles here (one per line)..." style="width:100%; min-height:140px; margin-top:.75rem; padding:.6rem; border-radius:10px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;"></textarea>
-    <div class="meta" id="planNote" style="margin-top:.5rem;"></div>
-  </div>
-
-  <h2>Queue & History</h2>
-  <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center; margin-bottom: .75rem;">
-    <label class="meta">Status:
-      <select id="filterStatus" onchange="loadJobs()">
-        <option value="">(all)</option>
-        <option value="queued">queued</option>
-        <option value="running">running</option>
-        <option value="success">success</option>
-        <option value="failed">failed</option>
-        <option value="canceled">canceled</option>
-      </select>
-    </label>
-    <label class="meta">Repo:
-      <input id="filterRepo" placeholder="owner/repo" style="padding:.4rem .5rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" onkeydown="if(event.key==='Enter'){loadJobs()}" />
-    </label>
-    <button onclick="loadJobs()">Refresh</button>
-    <button onclick="toggleHidden()" class="secondary" id="btnHidden">Hidden (0)</button>
-  </div>
-
-  <div id="hiddenPanel" style="display:none; margin: .5rem 0 1rem; border:1px solid #2a2f3a; border-radius:10px; padding: .75rem; background:#0b0d12;">
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
-      <strong>Hidden jobs</strong>
-      <div style="display:flex; gap:.5rem; align-items:center;">
-        <button onclick="clearHidden()" class="danger">Clear all hidden</button>
-        <button onclick="toggleHidden()" class="secondary">Close</button>
+  <div id="hiddenPanel" class="card hidden-panel">
+    <div class="job-line">
+      <div>
+        <strong>Hidden jobs</strong>
+        <div class="muted small">Hidden jobs are stored locally in your browser.</div>
+      </div>
+      <div class="job-actions">
+        <button class="danger" onclick="clearHidden()">Clear all hidden</button>
       </div>
     </div>
-    <div class="meta" style="margin-top:.25rem;">Hidden jobs are stored in your browser (local to this device).</div>
-    <div id="hiddenJobs" style="margin-top:.75rem;">No hidden jobs.</div>
+    <div id="hiddenJobs" class="small" style="margin-top:.75rem;"></div>
   </div>
 
-  <div id="jobs">Loading jobs…</div>
+  <div id="jobs" class="row"></div>
 
-  <script>
-    function esc(s){
-      return String(s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
-    }
+  <div class="divider"></div>
 
-    function getHiddenSet() {
-      try {
-        const arr = JSON.parse(localStorage.getItem("hidden_jobs") || "[]");
-        return new Set(Array.isArray(arr) ? arr.map(String) : []);
-      } catch(e) { return new Set(); }
-    }
-    function setHiddenSet(set) {
-      localStorage.setItem("hidden_jobs", JSON.stringify(Array.from(set)));
+  <h2>Site builder</h2>
+  <div class="card">
+    <div class="muted small">Configure a site (writes <code>data/site.yaml</code>) and import page plan items (writes <code>data/plan.yaml</code>).</div>
+    <div class="divider"></div>
+
+    <div class="row">
+      <label style="flex:1;">
+        <div class="small muted">Target repo (owner/name)</div>
+        <input id="builderRepo" placeholder="deedsy1/reality-checks-factory" style="width:100%;" />
+      </label>
+
+      <label>
+        <div class="small muted">Theme pack</div>
+        <input id="builderPack" placeholder="calm-paper" />
+      </label>
+
+      <label>
+        <div class="small muted">Brand/title</div>
+        <input id="builderBrand" placeholder="Reality Checks" />
+      </label>
+    </div>
+
+    <div style="margin-top:.75rem;">
+      <div class="small muted">Niche title or description</div>
+      <textarea id="builderNiche" placeholder="Example: Calm, practical reassurance for modern work & life stress. No advice."></textarea>
+    </div>
+
+    <div class="row" style="margin-top:.75rem;">
+      <button onclick="configureSite()">Write site.yaml</button>
+      <span class="muted small" id="configureStatus"></span>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="small muted">Page titles (one per line). You can paste OR upload a .txt file.</div>
+    <div class="row" style="margin-top:.5rem;">
+      <input type="file" id="pagesFile" accept=".txt" />
+      <button class="secondary" onclick="loadFileIntoTextarea()">Load file</button>
+    </div>
+    <textarea id="pagesText" placeholder="Is it normal to feel exhausted after work every day?
+How to tell if you're burned out or just tired
+..."></textarea>
+
+    <div class="row" style="margin-top:.75rem;">
+      <button onclick="importPlan()">Import into plan.yaml (todo)</button>
+      <span class="muted small" id="importStatus"></span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <h2>Contract rollout (prompt + gates)</h2>
+  <div class="card">
+    <div class="muted small">
+      Push a shared <code>core/site_patch.yaml</code> into selected sites by merging into each site's <code>data/site.yaml</code>.
+      This is how you roll out updated prompt assumptions + quality gates to many sites at once.
+    </div>
+    <div class="divider"></div>
+
+    <div class="row">
+      <label>
+        <div class="small muted">Scope</div>
+        <select id="coreScope">
+          <option value="selected">Selected sites</option>
+          <option value="all">All sites</option>
+          <option value="tag">By tag</option>
+        </select>
+      </label>
+      <label style="flex:1;">
+        <div class="small muted">Tag (only if Scope=By tag)</div>
+        <input id="coreTag" placeholder="camping" style="width:100%;" />
+      </label>
+      <button onclick="pushContract()">Push contract update</button>
+      <span class="muted small" id="coreStatus"></span>
+    </div>
+
+    <div class="divider"></div>
+    <div class="small muted">Select sites for rollout</div>
+    <div id="coreTargets" class="row" style="margin-top:.5rem;"></div>
+  </div>
+
+  <div id="toast" class="toast" style="display:none;"></div>
+
+<script>
+const esc = (s) => (s ?? "").toString()
+  .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
+
+function toast(title, msg) {
+  const el = document.getElementById("toast");
+  el.innerHTML = `<strong>${esc(title)}</strong><div class="small">${esc(msg)}</div>`;
+  el.style.display = "block";
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(() => { el.style.display = "none"; }, 5500);
+}
+
+function getHiddenSet() {
+  try {
+    const raw = localStorage.getItem("hidden_jobs") || "[]";
+    return new Set(JSON.parse(raw));
+  } catch { return new Set(); }
+}
+function saveHiddenSet(set) {
+  localStorage.setItem("hidden_jobs", JSON.stringify(Array.from(set)));
+  updateHiddenCount();
+}
+function updateHiddenCount() {
+  const n = getHiddenSet().size;
+  document.getElementById("hiddenToggleBtn").textContent = `Hidden (${n})`;
+}
+function toggleHiddenPanel() {
+  const p = document.getElementById("hiddenPanel");
+  p.classList.toggle("open");
+  renderHiddenPanel();
+}
+function clearHidden() {
+  localStorage.removeItem("hidden_jobs");
+  updateHiddenCount();
+  renderHiddenPanel();
+  loadJobs();
+}
+function hideJob(id) {
+  const set = getHiddenSet();
+  set.add(String(id));
+  saveHiddenSet(set);
+  renderHiddenPanel();
+  loadJobs();
+}
+function unhideJob(id) {
+  const set = getHiddenSet();
+  set.delete(String(id));
+  saveHiddenSet(set);
+  renderHiddenPanel();
+  loadJobs();
+}
+function renderHiddenPanel() {
+  const set = getHiddenSet();
+  const container = document.getElementById("hiddenJobs");
+  if (set.size === 0) {
+    container.innerHTML = `<div class="muted small">No hidden jobs.</div>`;
+    return;
+  }
+  const items = Array.from(set).slice(-200).reverse();
+  container.innerHTML = items.map(id => `
+    <div class="job-line" style="padding:.5rem 0; border-bottom:1px solid #2a2f3a;">
+      <div><code>${esc(id)}</code></div>
+      <div class="job-actions">
+        <button class="secondary" onclick="unhideJob('${esc(id)}')">Unhide</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function getLastEnqueue() {
+  try { return JSON.parse(sessionStorage.getItem("last_enqueue") || "null"); } catch { return null; }
+}
+
+let SITES = [];
+
+async function loadSites() {
+  const status = document.getElementById("sitesStatus");
+  status.textContent = "Loading…";
+  try {
+    const r = await fetch("/api/sites");
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+    SITES = data.sites || [];
+    renderSites();
+    renderCoreTargets();
+    status.textContent = `Loaded ${SITES.length} site(s).`;
+  } catch (e) {
+    status.textContent = `Error: ${e.message || e}`;
+    toast("Sites error", status.textContent);
+  }
+}
+
+function renderSites() {
+  const container = document.getElementById("sites");
+  if (!SITES.length) {
+    container.innerHTML = `<div class="muted">No sites found. Check <code>SITES_REPO</code>/<code>SITES_PATH</code>.</div>`;
+    return;
+  }
+  container.innerHTML = SITES.map(s => {
+    const repo = s.repo;
+    const adsEligible = !!(s.ads && s.ads.eligible);
+    const provider = (s.ads && s.ads.provider) || "none";
+    return `
+      <div class="card site-card">
+        <div><strong>${esc(s.name || repo)}</strong></div>
+        <div class="muted small" style="margin-top:.25rem;">${esc(repo)}</div>
+        <div class="divider"></div>
+        <div class="row" style="justify-content:space-between;">
+          <div class="small">
+            Ads eligible:
+            <select onchange="setAdsEligible('${esc(repo)}', this.value)" style="margin-left:.4rem;">
+              <option value="0" ${adsEligible ? "" : "selected"}>No</option>
+              <option value="1" ${adsEligible ? "selected" : ""}>Yes</option>
+            </select>
+          </div>
+          <div class="small">
+            Provider:
+            <select onchange="setAdsProvider('${esc(repo)}', this.value)" style="margin-left:.4rem;">
+              ${["none","adsense","journey","raptive"].map(p=>`<option value="${p}" ${(provider===p)?"selected":""}>${p}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="row">
+          <button onclick="enqueue('${esc(repo)}', ${Number(s.default_pages || 5)})">Enqueue (${Number(s.default_pages || 5)})</button>
+          <button class="secondary" onclick="enqueue('${esc(repo)}', 1)">Enqueue (1)</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function setAdsEligible(repo, eligibleVal) {
+  const eligible = eligibleVal === "1";
+  toast("Ads", `Updating ads eligibility for ${repo}…`);
+  try {
+    const r = await fetch("/api/site/ads/toggle", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ repo, eligible })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+    toast("Ads", `Updated ${repo}: eligible=${eligible}`);
+    await loadSites();
+  } catch(e) {
+    toast("Ads error", e.message || String(e));
+  }
+}
+
+async function setAdsProvider(repo, provider) {
+  toast("Ads", `Updating ads provider for ${repo}…`);
+  try {
+    const r = await fetch("/api/site/ads/toggle", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ repo, provider })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+    toast("Ads", `Updated ${repo}: provider=${provider}`);
+    await loadSites();
+  } catch(e) {
+    toast("Ads error", e.message || String(e));
+  }
+}
+
+async function enqueue(repo, pages) {
+  const dry_run = document.getElementById("dryRun").checked;
+  try {
+    const r = await fetch("/api/dispatch", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ repo, pages, dry_run })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+
+    if (data.dry_run) {
+      toast("Dry-run", `Would enqueue ${repo} (${pages})`);
+    } else {
+      const jobId = data.job?.id || data.job_id;
+      const reused = !!data.reused;
+      sessionStorage.setItem("last_enqueue", JSON.stringify({ jobId, reused, ts: Date.now() }));
+      toast("Enqueue", reused ? `Reused existing job: ${jobId}` : `Enqueued job: ${jobId}`);
       updateHiddenCount();
+      await loadJobs();
     }
-    function updateHiddenCount() {
-      const n = getHiddenSet().size;
-      const btn = document.getElementById("btnHidden");
-      if (btn) btn.textContent = `Hidden (${n})`;
+  } catch(e) {
+    toast("Enqueue error", e.message || String(e));
+  }
+}
+
+async function loadJobs() {
+  const status = document.getElementById("jobsStatus");
+  status.textContent = "Loading…";
+  try {
+    const r = await fetch("/api/jobs?limit=50");
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+
+    const hidden = getHiddenSet();
+    const jobs = (data.jobs || []).filter(j => !hidden.has(String(j.id)));
+
+    const last = getLastEnqueue();
+    const lastJobId = last?.jobId;
+    const lastIsFresh = last?.ts && (Date.now() - last.ts) < (2*60*1000);
+
+    const container = document.getElementById("jobs");
+    if (!jobs.length) {
+      container.innerHTML = `<div class="muted">No jobs.</div>`;
+      status.textContent = "";
+      return;
     }
-    function toggleHidden() {
-      const panel = document.getElementById("hiddenPanel");
-      if (!panel) return;
-      const show = panel.style.display === "none";
-      panel.style.display = show ? "block" : "none";
-      if (show) renderHiddenPanel();
-    }
-    function hideJob(id) {
-      const set = getHiddenSet();
-      set.add(String(id));
-      setHiddenSet(set);
-      renderHiddenPanel();
-      loadJobs();
-    }
-    function unhideJob(id) {
-      const set = getHiddenSet();
-      set.delete(String(id));
-      setHiddenSet(set);
-      renderHiddenPanel();
-      loadJobs();
-    }
-    function clearHidden() {
-      localStorage.removeItem("hidden_jobs");
-      updateHiddenCount();
-      renderHiddenPanel();
-      loadJobs();
-    }
-    function renderHiddenPanel() {
-      const container = document.getElementById("hiddenJobs");
-      if (!container) return;
-      const set = getHiddenSet();
-      if (set.size === 0) {
-        container.innerHTML = "No hidden jobs.";
-        return;
-      }
-      const ids = Array.from(set).slice().reverse();
-      container.innerHTML = ids.map(id => `
-        <div class="site" style="margin: .5rem 0; padding:.6rem;">
-          <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:center;">
+    container.innerHTML = jobs.map(j => {
+      const isLast = lastIsFresh && lastJobId && String(j.id) === String(lastJobId);
+      const badge = isLast ? `<span class="pill ${last.reused ? "reused" : "new"}">${last.reused ? "REUSED" : "ENQUEUED"}</span>` : "";
+      const runLink = j.gh_run_url ? `<a href="${esc(j.gh_run_url)}" target="_blank" rel="noreferrer">Open run</a>` : "";
+      const err = j.error ? `<div class="small" style="color:#ffb3b3; margin-top:.35rem;">${esc(j.error)}</div>` : "";
+      return `
+        <div class="card site-card ${isLast ? "highlight" : ""}">
+          <div class="job-line">
             <div>
-              <strong>${esc(id)}</strong>
-              <div class="meta">hidden</div>
+              <strong>${esc(j.site_name || j.repo)}${badge}</strong>
+              <div class="muted small">${esc(j.repo)} • <span>${esc(j.status)}</span> • <code>${esc(j.id)}</code></div>
+              <div class="muted small">pages=${esc(j.pages)} mode=${esc(j.mode)} ${runLink ? " • " + runLink : ""}</div>
+              ${err}
             </div>
-            <div style="display:flex; gap:.5rem;">
-              <button class="secondary" onclick="unhideJob('${id}')">Unhide</button>
+            <div class="job-actions">
+              <button class="secondary" onclick="hideJob('${esc(j.id)}')">Hide</button>
             </div>
           </div>
         </div>
-      `).join("");
-    }
-
-    async function configureSite() {
-      const repo = document.getElementById("cfgRepo").value.trim();
-      const title = document.getElementById("cfgTitle").value.trim();
-      const description = document.getElementById("cfgDesc").value.trim();
-      const theme_pack = document.getElementById("cfgTheme").value.trim();
-      const note = document.getElementById("cfgNote");
-      note.textContent = "";
-      if (!repo || !repo.includes("/")) { note.textContent = "Enter repo as owner/repo"; return; }
-      if (!title) { note.textContent = "Enter a site title"; return; }
-
-      const r = await fetch("/api/site/configure", {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ repo, title, description, theme_pack })
-      });
-
-      const data = await r.json().catch(()=>({}));
-      if (!r.ok) {
-        note.textContent = data.message || data.error || ("Error " + r.status);
-        return;
-      }
-      note.textContent = `Wrote data/site.yaml to ${repo}.`;
-    }
-
-    async function importPlan() {
-      const repo = document.getElementById("planRepo").value.trim();
-      const hub = document.getElementById("planHub").value.trim();
-      const page_type = document.getElementById("planType").value.trim();
-      const note = document.getElementById("planNote");
-      note.textContent = "";
-      if (!repo || !repo.includes("/")) { note.textContent = "Enter repo as owner/repo"; return; }
-
-      const fileEl = document.getElementById("planFile");
-      let titlesText = document.getElementById("planTitles").value || "";
-      if (fileEl && fileEl.files && fileEl.files[0]) {
-        titlesText = await fileEl.files[0].text();
-      }
-      const titles = String(titlesText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-      if (titles.length === 0) { note.textContent = "Paste titles or upload a .txt"; return; }
-
-      const r = await fetch("/api/plan/import", {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ repo, titles, hub: hub || undefined, page_type: page_type || undefined })
-      });
-      const data = await r.json().catch(()=>({}));
-      if (!r.ok) {
-        note.textContent = data.message || data.error || ("Error " + r.status);
-        return;
-      }
-      note.textContent = `Imported ${data.added || 0} titles into data/plan.yaml for ${repo}.`;
-    }
-
-    async function loadSites() {
-      const res = await fetch("/api/sites");
-      const data = await res.json();
-      const container = document.getElementById("sites");
-      container.innerHTML = "";
-
-      (data.sites || []).forEach(site => {
-        const el = document.createElement("div");
-        el.className = "site";
-        const rid = site.repo.replace("/", "-");
-        el.innerHTML = `
-          <strong>${esc(site.name)}</strong>
-          <div class="meta">${esc(site.repo)}</div>
-
-          <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin:.5rem 0;">
-            <label class="meta">Pages:
-              <input id="pages-${rid}" type="number" min="1" max="2000" value="${site.default_pages || 5}" style="width:90px; padding:.4rem .5rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
-            </label>
-            <button onclick="enqueueJob('${site.repo}','${esc(site.name)}')">Enqueue</button>
-            <button onclick="loadStatus('${site.repo}')" style="background:#2f3645;">View Actions status</button>
-          </div>
-
-          <pre id="status-${rid}"></pre>
-        `;
-        container.appendChild(el);
-      });
-    }
-
-    async function enqueueJob(repo, siteName) {
-      const rid = repo.replace("/", "-");
-      const pages = parseInt(document.getElementById(`pages-${rid}`).value || "5", 10);
-      const dry_run = document.getElementById("dryRun").checked;
-
-      const r = await fetch("/api/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo, site_name: siteName, pages, mode: "generate", dry_run })
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        alert(data.error || `Error (${r.status})`);
-        return;
-      }
-      if (data.dry_run) {
-        alert(`Dry-run OK. Would enqueue job for ${repo}.`);
-      } else {
-        alert(data.reused ? `Reused existing job: ${data.job?.id}` : `Enqueued job: ${data.job_id}`);
-      }
-      loadJobs();
-    }
-
-    async function workerTick() {
-      const el = document.getElementById("workerNote");
-      el.textContent = "Running worker…";
-      const r = await fetch("/api/worker/tick", { method: "POST" });
-      const data = await r.json().catch(() => ({}));
-      el.textContent = r.ok ? (data.note || (data.dispatched ? `Dispatched ${data.repo}` : "OK")) : "Worker error";
-      loadJobs();
-    }
-
-    async function loadStatus(repo) {
-      const id = "status-" + repo.replace("/", "-");
-      const el = document.getElementById(id);
-      const r = await fetch(`/api/status?repo=${repo}`);
-      el.textContent = await r.text();
-    }
-
-    async function loadJobs() {
-      const status = document.getElementById('filterStatus').value;
-      const repo = document.getElementById('filterRepo').value.trim();
-
-      const qs = new URLSearchParams();
-      qs.set('limit','50');
-      if (status) qs.set('status', status);
-      if (repo) qs.set('repo', repo);
-
-      const container = document.getElementById('jobs');
-      const r = await fetch(`/api/jobs?${qs.toString()}`);
-      const data = await r.json().catch(() => ({jobs:[]}));
-      const jobs = data.jobs || [];
-
-      if (!jobs.length) {
-        container.innerHTML = `<div class="meta">No jobs.</div>`;
-        return;
-      }
-
-      const rows = jobs.map(j => {
-        const isLast = lastIsFresh && lastJobId && String(j.id) === String(lastJobId);
-        const badge = isLast ? `<span class="badge ${last && last.reused ? 'reused' : 'new'}">${last && last.reused ? 'REUSED' : 'ENQUEUED'}</span>` : "";
-
-        const runLink = j.gh_run_url ? `<a href="${esc(j.gh_run_url)}" target="_blank" rel="noopener" style="color:#4f7cff;">run</a>` : '';
-        const err = j.error ? `<div class="meta" style="color:#ff8a8a;">${esc(j.error)}</div>` : '';
-        return `
-          <div class="site">
-            <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
-              <div>
-                <strong>${esc(j.site_name || j.repo)}${badge}</strong>
-                <div class="meta">${esc(j.repo)} · ${esc(j.status)} · pages=${esc(j.pages)} · ${esc(j.mode)} ${runLink ? '· '+runLink : ''}</div>
-                <div class="meta">${esc(j.created_at)}</div>
-                ${err}
-              </div>
-              <div style="display:flex; gap:.5rem; align-items:center;">
-                <button class="secondary" onclick="hideJob(${JSON.stringify(j.id)})">Hide</button>
-                <button onclick="workerTick()">tick</button>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      container.innerHTML = rows;
-    }
-
+      `;
+    }).join("");
+    status.textContent = "";
     updateHiddenCount();
-    loadSites();
-    loadJobs();
-  </script>
+  } catch(e) {
+    status.textContent = `Worker error`;
+    toast("Jobs error", e.message || String(e));
+  }
+}
+
+async function processQueue() {
+  try {
+    const dry_run = document.getElementById("dryRun").checked;
+    const r = await fetch("/api/worker/tick", { method:"POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ dry_run }) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+    toast("Worker tick", data?.message || "OK");
+    await loadJobs();
+  } catch(e) {
+    toast("Worker tick error", e.message || String(e));
+  }
+}
+
+async function configureSite() {
+  const repo = document.getElementById("builderRepo").value.trim();
+  const pack = document.getElementById("builderPack").value.trim();
+  const brand = document.getElementById("builderBrand").value.trim();
+  const niche = document.getElementById("builderNiche").value.trim();
+  const status = document.getElementById("configureStatus");
+  status.textContent = "";
+  if (!repo || !niche) { status.textContent = "Repo + niche required"; return; }
+
+  try {
+    const r = await fetch("/api/site/configure", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ repo, pack, brand, niche })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+    status.textContent = "Wrote data/site.yaml";
+    toast("Site builder", `Configured ${repo}`);
+    await loadSites();
+  } catch(e) {
+    status.textContent = `Error: ${e.message || e}`;
+    toast("Configure error", status.textContent);
+  }
+}
+
+async function loadFileIntoTextarea() {
+  const f = document.getElementById("pagesFile").files?.[0];
+  if (!f) { toast("Import", "Pick a .txt file first."); return; }
+  const text = await f.text();
+  document.getElementById("pagesText").value = text;
+  toast("Import", "Loaded file into textarea.");
+}
+
+async function importPlan() {
+  const repo = document.getElementById("builderRepo").value.trim();
+  const text = document.getElementById("pagesText").value;
+  const status = document.getElementById("importStatus");
+  status.textContent = "";
+  if (!repo) { status.textContent = "Target repo required"; return; }
+
+  const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if (!lines.length) { status.textContent = "No titles provided"; return; }
+
+  try {
+    const r = await fetch("/api/plan/import", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ repo, titles: lines })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+    status.textContent = `Imported ${data.added || 0} item(s)`;
+    toast("Plan import", status.textContent);
+  } catch(e) {
+    status.textContent = `Error: ${e.message || e}`;
+    toast("Import error", status.textContent);
+  }
+}
+
+function renderCoreTargets() {
+  const container = document.getElementById("coreTargets");
+  if (!SITES.length) {
+    container.innerHTML = `<div class="muted small">Load sites first.</div>`;
+    return;
+  }
+  container.innerHTML = SITES.map(s => {
+    const id = `core_${(s.name || s.repo).replace(/[^a-z0-9]+/ig,'_')}`;
+    return `
+      <label class="card small" style="padding:.6rem .8rem; width: 360px;">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <input type="checkbox" id="${esc(id)}" data-repo="${esc(s.repo)}" checked />
+            <strong style="margin-left:.4rem;">${esc(s.name || s.repo)}</strong>
+          </div>
+          <span class="muted">${(s.tags||[]).map(t=>`#${esc(t)}`).join(" ")}</span>
+        </div>
+        <div class="muted">${esc(s.repo)}</div>
+      </label>
+    `;
+  }).join("");
+}
+
+async function pushContract() {
+  const scope = document.getElementById("coreScope").value;
+  const tag = document.getElementById("coreTag").value.trim();
+  const status = document.getElementById("coreStatus");
+  status.textContent = "";
+
+  let repos = [];
+  if (scope === "selected") {
+    repos = Array.from(document.querySelectorAll("#coreTargets input[type=checkbox]"))
+      .filter(el => el.checked)
+      .map(el => el.getAttribute("data-repo"))
+      .filter(Boolean);
+    if (!repos.length) { status.textContent = "Select at least one site"; return; }
+  } else if (scope === "tag") {
+    if (!tag) { status.textContent = "Tag required"; return; }
+  }
+
+  try {
+    const r = await fetch("/api/core/push", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ scope, tag, repos })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || r.statusText);
+    status.textContent = `Updated ${data.updated || 0} site(s)`;
+    toast("Contract rollout", status.textContent);
+  } catch(e) {
+    status.textContent = `Error: ${e.message || e}`;
+    toast("Rollout error", status.textContent);
+  }
+}
+
+updateHiddenCount();
+loadSites();
+loadJobs();
+</script>
 </body>
 </html>

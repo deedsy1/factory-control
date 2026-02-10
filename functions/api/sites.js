@@ -7,6 +7,9 @@ function parseSitesYaml(yamlText) {
   let inSites = false;
   let current = null;
   let inTags = false;
+      inAds = false;
+      inAds = false;
+  let inAds = false;
 
   const stripQuotes = (s) => s.replace(/^["']|["']$/g, "");
 
@@ -28,6 +31,8 @@ function parseSitesYaml(yamlText) {
       if (current) sites.push(current);
       current = {};
       inTags = false;
+      inAds = false;
+      inAds = false;
 
       const rest = trimmed.slice(2).trim();
       if (rest.startsWith("name:")) {
@@ -45,6 +50,14 @@ function parseSitesYaml(yamlText) {
       let val = m[2] ?? "";
       val = val.trim();
 
+      if (key === "ads") {
+        current.ads = current.ads || {};
+        inAds = true;
+        inTags = false;
+      inAds = false;
+        continue;
+      }
+
       if (key === "tags") {
         current.tags = [];
         inTags = true;
@@ -52,6 +65,18 @@ function parseSitesYaml(yamlText) {
       }
 
       inTags = false;
+      inAds = false;
+      inAds = false;
+
+      // ads subkeys
+      if (inAds && current.ads && (key === "eligible" || key === "provider")) {
+        if (key === "eligible") {
+          current.ads.eligible = (val === "true" || val === "1" || val === "yes");
+        } else {
+          current.ads.provider = stripQuotes(val);
+        }
+        continue;
+      }
 
       // numbers
       if (key === "default_pages") {
@@ -87,6 +112,7 @@ function parseSitesYaml(yamlText) {
       repo: s.repo,
       default_pages: s.default_pages ?? 5,
       tags: Array.isArray(s.tags) ? s.tags : [],
+      ads: (s.ads && typeof s.ads === 'object') ? s.ads : { eligible: false, provider: 'none' },
     }));
 
   return { sites: cleaned };
