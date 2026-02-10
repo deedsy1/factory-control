@@ -9,14 +9,16 @@ function toast(title, msg) {
   window.__toastTimer = setTimeout(() => { el.style.display = "none"; }, 5500);
 }
 
+const HIDDEN_KEY = "hidden_jobs";
+
 function getHiddenSet() {
   try {
-    const raw = localStorage.getItem("hidden_jobs") || "[]";
+    const raw = localStorage.getItem(HIDDEN_KEY) || "[]";
     return new Set(JSON.parse(raw));
   } catch { return new Set(); }
 }
 function saveHiddenSet(set) {
-  localStorage.setItem("hidden_jobs", JSON.stringify(Array.from(set)));
+  localStorage.setItem(HIDDEN_KEY, JSON.stringify(Array.from(set)));
   updateHiddenCount();
 }
 function updateHiddenCount() {
@@ -29,7 +31,7 @@ function toggleHiddenPanel() {
   renderHiddenPanel();
 }
 function clearHidden() {
-  localStorage.removeItem("hidden_jobs");
+  localStorage.removeItem(HIDDEN_KEY);
   updateHiddenCount();
   renderHiddenPanel();
 }
@@ -68,7 +70,7 @@ async function clearHiddenJob(id) {
   // Removes from hidden list + deletes from DB (safe if already gone)
   const set = getHiddenSet();
   set.delete(id);
-  localStorage.setItem(HIDDEN_KEY, JSON.stringify(Array.from(set)));
+  saveHiddenSet(set);
   renderHiddenPanel();
   try {
     await fetch("/api/jobs/delete", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ id }) });
@@ -315,7 +317,7 @@ function renderSites() {
             <div class="muted small" style="margin-top:.25rem;">${esc(repo)}</div>
           </div>
           <label class="small muted" style="display:flex; gap:.35rem; align-items:center;">
-            <input type="checkbox" ${selected ? "checked" : ""} onchange="setSiteSelected('${esc(repo)}', this.checked)" />
+            <input type="checkbox" ${selected ? "checked" : ""} data-action="site-select" data-repo="${esc(repo)}" />
             select
           </label>
         </div>
@@ -333,12 +335,12 @@ function renderSites() {
           <div class="small">
             Total pages:
             <input type="number" min="0" step="1" value="${totalPages || ""}" placeholder="(optional)" style="width:7rem; margin-left:.4rem;"
-              onchange="setTotalPages('${esc(repo)}', this.value)" />
+              data-action="site-total-pages" data-repo=\"${esc(repo)}\" />
           </div>
           <div class="small">
             Default enqueue:
             <input type="number" min="1" step="1" value="${defaultPages}" style="width:5rem; margin-left:.4rem;"
-              onchange="setDefaultPages('${esc(repo)}', this.value)" />
+              data-action="site-default-pages" data-repo=\"${esc(repo)}\" />
           </div>
         </div>
 
@@ -347,14 +349,14 @@ function renderSites() {
         <div class="row" style="justify-content:space-between;">
           <div class="small">
             Ads eligible:
-            <select onchange="setAdsEligible('${esc(repo)}', this.value)" style="margin-left:.4rem;">
+            <select data-action="site-ads-eligible" data-repo=\"${esc(repo)}\" style="margin-left:.4rem;">
               <option value="0" ${adsEligible ? "" : "selected"}>No</option>
               <option value="1" ${adsEligible ? "selected" : ""}>Yes</option>
             </select>
           </div>
           <div class="small">
             Provider:
-            <select onchange="setAdsProvider('${esc(repo)}', this.value)" style="margin-left:.4rem;">
+            <select data-action="site-ads-provider" data-repo=\"${esc(repo)}\" style="margin-left:.4rem;">
               ${["none","adsense","journey","raptive"].map(p=>`<option value="${p}" ${(provider===p)?"selected":""}>${p}</option>`).join("")}
             </select>
           </div>
@@ -370,7 +372,7 @@ function renderSites() {
   }).join("");
 }
 
-async function setAdsEligible(repo, eligibleVal) {(repo, eligibleVal) {
+async function setAdsEligible(repo, eligibleVal) {
   const eligible = eligibleVal === "1";
   toast("Ads", `Updating ads eligibility for ${repo}…`);
   try {
@@ -628,9 +630,6 @@ function toggleUIMode() {
   applyUIMode(next);
 }
 
-applyUIMode(getUIMode());
-updateHiddenCount();
-loadJobs();
 
 // --- Event wiring (no inline handlers; works under strict CSP) ---
 function wireUI(){
@@ -684,6 +683,19 @@ function wireUI(){
 
   const loadPromptsBtn = byId("loadPromptsBtn");
   if (loadPromptsBtn) loadPromptsBtn.addEventListener("click", safe(()=>loadPrompts()));
+
+  document.addEventListener("change", safe((e)=>{
+    const el = e.target;
+    if (!el) return;
+    const action = el.dataset ? el.dataset.action : null;
+    if (!action) return;
+    const repo = el.dataset.repo;
+    if (action === "site-select") return setSiteSelected(repo, el.checked);
+    if (action === "site-total-pages") return setTotalPages(repo, el.value);
+    if (action === "site-default-pages") return setDefaultPages(repo, el.value);
+    if (action === "site-ads-eligible") return setAdsEligible(repo, el.value);
+    if (action === "site-ads-provider") return setAdsProvider(repo, el.value);
+  }));
 
   document.addEventListener("click", safe((e)=>{
     const btn = e.target.closest("button[data-action]");

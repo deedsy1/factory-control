@@ -1,8 +1,3 @@
-// functions/_lib/d1.js
-// Small helpers for D1 + HTTP responses.
-// This file keeps your existing helpers and adds a tiny 'd1(...)' wrapper
-// so imports like `import { d1, json } from ...` keep working.
-
 export function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -48,11 +43,8 @@ export function getRequester(request) {
   };
 }
 
-// ---- Compatibility wrapper ----
-// Usage: await d1(env, "SELECT ... WHERE x = ?", [x])
-export async function d1(env, sql, params = []) {
-  const db = requireDB(env);
-  const stmt = db.prepare(String(sql));
-  const bound = Array.isArray(params) ? stmt.bind(...params) : stmt.bind(params);
-  return bound.all();
+
+// Convenience alias used by some handlers
+export function d1(env) {
+  return requireDB(env);
 }

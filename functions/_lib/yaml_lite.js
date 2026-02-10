@@ -1,4 +1,3 @@
-// functions/_lib/yaml_lite.js
 // Minimal YAML parser/stringifier for this project.
 // This is intentionally small so Pages Functions can bundle without npm deps.
 //
@@ -161,6 +160,11 @@ export function stringifyYAML(obj, indent = 0) {
   return `${pad}${formatScalar(obj)}`;
 }
 
-// ---- Compatibility aliases (avoid human-error + import mismatches) ----
-export const parseYaml = parseYAML;
-export const stringifyYaml = stringifyYAML;
+
+// Compatibility aliases (older handlers import these names)
+export function parseYaml(input) {
+  return parseYAML(input);
+}
+export function stringifyYaml(obj, indent=0) {
+  return stringifyYAML(obj, indent);
+}

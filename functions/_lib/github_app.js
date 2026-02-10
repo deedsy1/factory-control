@@ -1,9 +1,6 @@
 // functions/_lib/github_app.js
 // GitHub App -> Installation token helper for Cloudflare Pages Functions
 // Uses WebCrypto (no external deps)
-//
-// This file intentionally keeps the original structure and adds small helper
-// exports used elsewhere in the dashboard (contents read/write, base64 helpers).
 
 function pemToArrayBuffer(pem) {
   const b64 = pem
@@ -106,69 +103,67 @@ export async function ghFetch(env, url, options = {}) {
   return fetch(url, { ...options, headers });
 }
 
-/** Base64 helpers (GitHub contents API expects base64). */
-export function b64EncodeUtf8(str) {
+// --- Small helpers for GitHub Contents API (used by site contract/patch rollouts)
+function b64encodeUtf8(str) {
   const bytes = new TextEncoder().encode(String(str));
   let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
 }
 
-export function b64DecodeUtf8(b64) {
+function b64decodeUtf8(b64) {
   const bin = atob(String(b64 || ""));
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new TextDecoder().decode(bytes);
 }
 
-/**
- * Convenience wrapper: read repo file contents via GitHub "contents" API.
- * Returns: { text, sha, raw, status }
- */
-export async function getGithubContents(env, repo, path, ref = "main") {
-  if (!repo) throw new Error("getGithubContents: missing repo (owner/name)");
-  if (!path) throw new Error("getGithubContents: missing path");
-
-  const url = new URL(`https://api.github.com/repos/${repo}/contents/${path.replace(/^\//, "")}`);
-  if (ref) url.searchParams.set("ref", ref);
-
-  const r = await ghFetch(env, url.toString(), { method: "GET" });
-  const raw = await r.text();
-
-  if (!r.ok) {
-    return { text: "", sha: "", raw, status: r.status };
-  }
-
-  const data = JSON.parse(raw);
-  const content = data && data.content ? String(data.content).replace(/\n/g, "") : "";
-  const text = content ? b64DecodeUtf8(content) : "";
-  return { text, sha: data.sha || "", raw, status: r.status };
+async function ghJson(env, url, options = {}) {
+  const r = await ghFetch(env, url, {
+    ...options,
+    headers: {
+      Accept: "application/vnd.github+json",
+      ...(options.headers || {}),
+    },
+  });
+  const txt = await r.text();
+  let data = null;
+  try { data = txt ? JSON.parse(txt) : null; } catch {}
+  return { ok: r.ok, status: r.status, data, text: txt };
 }
 
-/**
- * Convenience wrapper: create/update repo file via GitHub contents API.
- * If sha is provided, GitHub treats as update; otherwise create.
- * Returns: { ok, raw, status }
- */
-export async function putGithubContents(env, repo, path, message, contentText, sha = "", branch = "main") {
-  if (!repo) throw new Error("putGithubContents: missing repo (owner/name)");
-  if (!path) throw new Error("putGithubContents: missing path");
-  if (!message) message = `Update ${path}`;
+export async function getGithubContents(env, owner, repo, path, ref) {
+  const u = new URL(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`);
+  if (ref) u.searchParams.set("ref", ref);
+  const res = await ghJson(env, u.toString(), { method: "GET" });
+  if (!res.ok) {
+    throw new Error(`GitHub contents GET failed: HTTP ${res.status}
+${res.text}`);
+  }
+  const data = res.data || {};
+  const contentText = data.content ? b64decodeUtf8(String(data.content).replace(/\n/g, "")) : "";
+  return { sha: data.sha, contentText, raw: data };
+}
 
-  const url = `https://api.github.com/repos/${repo}/contents/${path.replace(/^\//, "")}`;
+export async function putGithubContents(env, owner, repo, path, contentText, message, sha, branch) {
+  const u = new URL(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`);
   const body = {
-    message,
-    content: b64EncodeUtf8(contentText ?? ""),
-    branch: branch || "main",
+    message: message || `Update ${path}`,
+    content: b64encodeUtf8(contentText),
   };
   if (sha) body.sha = sha;
+  if (branch) body.branch = branch;
 
-  const r = await ghFetch(env, url, {
+  const res = await ghJson(env, u.toString(), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
-  const raw = await r.text();
-  return { ok: r.ok, raw, status: r.status };
+  if (!res.ok) {
+    throw new Error(`GitHub contents PUT failed: HTTP ${res.status}
+${res.text}`);
+  }
+
+  return res.data;
 }
