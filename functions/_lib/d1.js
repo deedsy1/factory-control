@@ -18,11 +18,6 @@ export function requireDB(env) {
   return env.DB;
 }
 
-// Back-compat alias: some handlers import { d1 } expecting a DB getter.
-export function d1(env) {
-  return requireDB(env);
-}
-
 export function nowIso() {
   return new Date().toISOString();
 }

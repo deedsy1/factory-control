@@ -1,5 +1,5 @@
 import { ghFetch } from "../_lib/github_app.js";
-import { parseYAML } from "../_lib/yaml_lite.js";
+import { parseYaml } from "../_lib/yaml_lite.js";
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -21,7 +21,7 @@ export async function onRequestGet({ env }) {
     }
     const data = await r.json();
     const content = atob((data.content || "").replace(/\n/g, ""));
-    const parsed = parseYAML(content) || {};
+    const parsed = parseYaml(content) || {};
     return json({ ok: true, repo, path, prompts: parsed.prompts || {} });
   } catch (e) {
     return json({ ok: false, error: String(e?.message || e) }, { status: 500 });

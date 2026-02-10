@@ -1,5 +1,5 @@
 import { ghFetch } from "../../_lib/github_app.js";
-import { parseYAML } from "../../_lib/yaml_lite.js";
+import { parseYaml } from "../../_lib/yaml_lite.js";
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -31,7 +31,7 @@ export async function onRequestGet({ env }) {
     if (!r.ok) return json({ ok: false, error: `GitHub fetch failed (${r.status})`, detail: await r.text() }, { status: 502 });
     const data = await r.json();
     const decoded = atob((data.content || "").replace(/\n/g, ""));
-    const parsed = parseYAML(decoded) || {};
+    const parsed = parseYaml(decoded) || {};
     const sites = normalizeSites(parsed);
 
     // Approx coverage: sum succeeded job pages per repo.

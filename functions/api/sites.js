@@ -1,7 +1,7 @@
 // NOTE: this file lives at functions/api/sites.js. Shared helpers live at functions/_lib/*
 // so the correct relative import is ../_lib/...
 import { ghFetch } from "../_lib/github_app.js";
-import { parseYAML } from "../_lib/yaml_lite.js";
+import { parseYaml } from "../_lib/yaml_lite.js";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -63,7 +63,7 @@ export async function onRequestGet({ env }) {
   }
 
   const decoded = atob(content.replace(/\n/g, ""));
-  const parsed = parseYAML(decoded) || {};
+  const parsed = parseYaml(decoded) || {};
   const sites = normalizeSites(parsed);
   const tags = [...new Set(sites.flatMap((s) => s.tags || []))].sort();
   return json({ ok: true, repo, path, sites, tags });
