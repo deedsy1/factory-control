@@ -2,12 +2,5 @@ sites:
   - name: reality-checks
     repo: deedsy1/reality-checks-factory
     default_pages: 5
-    tags:
-      - reassurance
-      - evergreen
-      - mental-health
-
-# Optional per-site ads config
-# ads:
-#   eligible: false
-#   provider: none
+    tags: reassurance,evergreen,mental-health
+    total_pages: 1
