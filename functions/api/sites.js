@@ -1,4 +1,4 @@
-import { ghFetch } from "./_lib/github_app.js";
+import { ghFetch } from "../_lib/github_app.js";
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
