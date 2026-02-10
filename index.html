@@ -43,6 +43,25 @@
       border-radius: 6px;
       overflow-x: auto;
     }
+
+    .badge {
+      display: inline-block;
+      padding: .15rem .5rem;
+      border-radius: 999px;
+      font-size: .75rem;
+      border: 1px solid #2a2f3a;
+      background: #151922;
+      color: #9aa4b2;
+      margin-left: .5rem;
+      vertical-align: middle;
+    }
+    .badge.reused { border-color: #d6b36a; color: #ffd58a; }
+    .badge.new { border-color: #4f7cff; color: #9fb7ff; }
+    .highlight {
+      outline: 2px solid rgba(79,124,255,.55);
+      box-shadow: 0 0 0 4px rgba(79,124,255,.12);
+    }
+
   </style>
 </head>
 <body>
@@ -131,7 +150,17 @@
       if (data.dry_run) {
         alert(`Dry-run OK. Would enqueue job for ${repo}.`);
       } else {
-        alert(data.reused ? `Reused existing job: ${data.job?.id}` : `Enqueued job: ${data.job_id}`);
+        const jobId = data.job?.id || data.job_id;
+        const reused = !!data.reused;
+
+        // store last action so Queue & History can mark the row
+        sessionStorage.setItem("last_enqueue", JSON.stringify({
+          jobId,
+          reused,
+          ts: Date.now()
+        }));
+
+        alert(reused ? `Reused existing job: ${jobId}` : `Enqueued job: ${jobId}`);
       }
       loadJobs();
     }
@@ -166,19 +195,26 @@
       const data = await r.json().catch(() => ({jobs:[]}));
       const jobs = data.jobs || [];
 
+      let last = null;
+      try { last = JSON.parse(sessionStorage.getItem("last_enqueue") || "null"); } catch(e) {}
+      const lastJobId = last?.jobId;
+      const lastIsFresh = last?.ts && (Date.now() - last.ts) < (2 * 60 * 1000); // 2 minutes
+
       if (!jobs.length) {
         container.innerHTML = `<div class="meta">No jobs.</div>`;
         return;
       }
 
       const rows = jobs.map(j => {
+        const isLast = lastIsFresh && lastJobId && String(j.id) === String(lastJobId);
+        const badge = isLast ? `<span class="badge ${last?.reused ? "reused" : "new"}">${last?.reused ? "REUSED" : "ENQUEUED"}</span>` : "";
         const runLink = j.gh_run_url ? `<a href="${esc(j.gh_run_url)}" target="_blank" rel="noopener" style="color:#4f7cff;">run</a>` : '';
         const err = j.error ? `<div class="meta" style="color:#ff8a8a;">${esc(j.error)}</div>` : '';
         return `
-          <div class="site">
+          <div class="site ${isLast ? "highlight" : ""}">
             <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
               <div>
-                <strong>${esc(j.site_name || j.repo)}</strong>
+                <strong>${esc(j.site_name || j.repo)}${badge}</strong>
                 <div class="meta">${esc(j.repo)} · ${esc(j.status)} · pages=${esc(j.pages)} · ${esc(j.mode)} ${runLink ? '· '+runLink : ''}</div>
                 <div class="meta">${esc(j.created_at)}</div>
                 ${err}
