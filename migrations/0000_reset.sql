@@ -1,0 +1,4 @@
+﻿DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS site_locks;
+DROP TABLE IF EXISTS job_events;
+DROP TABLE IF EXISTS schedules;
