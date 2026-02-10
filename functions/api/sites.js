@@ -110,7 +110,11 @@ function parseSitesYaml(yamlText) {
     .map((s) => ({
       name: s.name || s.repo,
       repo: s.repo,
+      ref: s.ref || 'main',
       default_pages: s.default_pages ?? 5,
+      target_pages: s.target_pages === undefined || s.target_pages === null || s.target_pages === ''
+        ? null
+        : Number(s.target_pages),
       tags: Array.isArray(s.tags) ? s.tags : [],
       ads: (s.ads && typeof s.ads === 'object') ? s.ads : { eligible: false, provider: 'none' },
     }));
