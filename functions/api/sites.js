@@ -1,150 +1,125 @@
-import { ghFetch } from "../_lib/github_app.js";
+import { ghFetch } from "./_lib/github_app.js";
 
-function parseSitesYaml(yamlText) {
-  const lines = String(yamlText || "").split(/\r?\n/);
+function json(data, init = {}) {
+  const headers = new Headers(init.headers || {});
+  if (!headers.has("content-type")) headers.set("content-type", "application/json; charset=utf-8");
+  return new Response(JSON.stringify(data, null, 2), { ...init, headers });
+}
 
+// Minimal YAML parser for our simple sites.yaml structure (no external deps).
+function parseSitesYaml(text) {
   const sites = [];
-  let inSites = false;
-  let current = null;
+  const lines = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => l.replace(/\t/g, "  "));
+
+  let cur = null;
   let inTags = false;
-      inAds = false;
-      inAds = false;
   let inAds = false;
 
-  const stripQuotes = (s) => s.replace(/^["']|["']$/g, "");
-
-  for (let rawLine of lines) {
-    const line = rawLine.replace(/\t/g, "  ");
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#")) continue;
-
-    if (trimmed === "sites:" || trimmed.startsWith("sites:")) {
-      inSites = true;
-      continue;
+  const commit = () => {
+    if (!cur) return;
+    if (cur.pages_total != null) {
+      const n = Number(cur.pages_total);
+      cur.pages_total = Number.isFinite(n) ? n : null;
     }
-    if (!inSites) continue;
+    if (cur.ads && typeof cur.ads.eligible === "string") {
+      cur.ads.eligible = cur.ads.eligible.toLowerCase() === "true";
+    }
+    sites.push(cur);
+  };
 
-    // New item
-    if (trimmed.startsWith("- ")) {
-      // If this is "- name: xyz" start a new site
-      if (current) sites.push(current);
-      current = {};
+  for (const raw of lines) {
+    const line = raw.replace(/\s+#.*$/, ""); // strip trailing comments
+    if (!line.trim()) continue;
+
+    if (/^\s*-\s+name\s*:\s*/.test(line)) {
+      commit();
+      cur = { name: line.split(":")[1].trim(), tags: [], ads: { eligible: false } };
       inTags = false;
       inAds = false;
-      inAds = false;
+      continue;
+    }
+    if (!cur) continue;
 
-      const rest = trimmed.slice(2).trim();
-      if (rest.startsWith("name:")) {
-        current.name = stripQuotes(rest.slice("name:".length).trim());
-      }
+    // Arrays
+    if (/^\s*tags\s*:\s*$/.test(line)) {
+      inTags = true;
+      inAds = false;
+      continue;
+    }
+    if (inTags && /^\s*-\s+/.test(line)) {
+      cur.tags.push(line.replace(/^\s*-\s+/, "").trim());
       continue;
     }
 
-    if (!current) continue;
-
-    // Key: value
-    const m = trimmed.match(/^([A-Za-z0-9_]+)\s*:\s*(.*)$/);
-    if (m) {
-      const key = m[1];
-      let val = m[2] ?? "";
-      val = val.trim();
-
-      if (key === "ads") {
-        current.ads = current.ads || {};
-        inAds = true;
-        inTags = false;
-      inAds = false;
-        continue;
-      }
-
-      if (key === "tags") {
-        current.tags = [];
-        inTags = true;
-        continue;
-      }
-
+    // Ads block
+    if (/^\s*ads\s*:\s*$/.test(line)) {
+      inAds = true;
       inTags = false;
-      inAds = false;
-      inAds = false;
-
-      // ads subkeys
-      if (inAds && current.ads && (key === "eligible" || key === "provider")) {
-        if (key === "eligible") {
-          current.ads.eligible = (val === "true" || val === "1" || val === "yes");
-        } else {
-          current.ads.provider = stripQuotes(val);
-        }
-        continue;
-      }
-
-      // numbers
-      if (key === "default_pages") {
-        const n = parseInt(val, 10);
-        current.default_pages = Number.isFinite(n) ? n : 5;
-        continue;
-      }
-
-      // strings
-      if (val === "" || val === "null") {
-        current[key] = "";
-      } else {
-        current[key] = stripQuotes(val);
-      }
+      cur.ads = cur.ads || { eligible: false };
+      continue;
+    }
+    if (inAds && /^\s{2,}[a-zA-Z_]+\s*:\s*/.test(line)) {
+      const [k, ...rest] = line.trim().split(":");
+      const v = rest.join(":").trim();
+      if (k === "eligible") cur.ads.eligible = v;
+      if (k === "provider") cur.ads.provider = v;
       continue;
     }
 
-    // Tags list items (expects "- camping")
-    if (inTags && trimmed.startsWith("- ")) {
-      const tag = stripQuotes(trimmed.slice(2).trim());
-      if (tag) current.tags.push(tag);
-      continue;
-    }
+    // Simple key: value at current level
+    const m = line.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.*)$/);
+    if (!m) continue;
+    const key = m[1];
+    const val = m[2].trim();
+    inTags = false;
+    inAds = false;
+
+    if (key === "pages_total") cur.pages_total = val === "" ? null : val;
+    else cur[key] = val;
   }
 
-  if (current) sites.push(current);
-
-  // Filter minimum shape
-  const cleaned = sites
-    .filter((s) => s && s.repo)
-    .map((s) => ({
-      name: s.name || s.repo,
-      repo: s.repo,
-      ref: s.ref || 'main',
-      default_pages: s.default_pages ?? 5,
-      target_pages: s.target_pages === undefined || s.target_pages === null || s.target_pages === ''
-        ? null
-        : Number(s.target_pages),
-      tags: Array.isArray(s.tags) ? s.tags : [],
-      ads: (s.ads && typeof s.ads === 'object') ? s.ads : { eligible: false, provider: 'none' },
-    }));
-
-  return { sites: cleaned };
+  commit();
+  return sites;
 }
 
 export async function onRequestGet({ env }) {
   const repo = env.SITES_REPO;
   const path = env.SITES_PATH || "sites.yaml";
+  if (!repo) return json({ ok: false, message: "Set SITES_REPO in Cloudflare env (e.g. deedsy1/factory-control)" }, { status: 400 });
 
-  if (!repo || !repo.includes("/")) {
-    return new Response("Set SITES_REPO in Cloudflare env (e.g. deedsy1/factory-control)", { status: 500 });
+  const url = `https://api.github.com/repos/${repo}/contents/${encodeURIComponent(path)}`;
+  const r = await ghFetch(url, env);
+
+  let data;
+  try {
+    data = await r.json();
+  } catch {
+    const t = await r.text();
+    return json({ ok: false, message: `GitHub response not JSON`, details: t, status: r.status }, { status: 502 });
   }
-
-  const [owner, name] = repo.split("/");
-  const url = `https://api.github.com/repos/${owner}/${name}/contents/${encodeURIComponent(path)}`;
-
-  const r = await ghFetch(env, url, { method: "GET" });
-  const data = await r.json();
 
   if (!r.ok) {
-    return new Response(JSON.stringify(data, null, 2), { status: 500 });
+    return json(
+      {
+        ok: false,
+        message: data?.message || "GitHub error",
+        status: r.status,
+        documentation_url: data?.documentation_url,
+      },
+      { status: 502 }
+    );
   }
 
-  const raw = atob(String(data.content).replace(/\n/g, ""));
-  const parsed = parseSitesYaml(raw);
+  const content = data?.content;
+  if (!content) {
+    return json({ ok: false, message: `sites file not found or empty: ${repo}/${path}` }, { status: 404 });
+  }
 
-  return new Response(JSON.stringify(parsed), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
+  const decoded = atob(content.replace(/\n/g, ""));
+  const sites = parseSitesYaml(decoded);
+
+  return json({ ok: true, repo, path, sites });
 }

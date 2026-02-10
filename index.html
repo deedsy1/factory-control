@@ -214,28 +214,6 @@ function unhideJob(id) {
   renderHiddenPanel();
   loadJobs();
 }
-
-async function clearHiddenOne(id) {
-  // Remove from hidden list regardless of DB state
-  const set = getHiddenSet();
-  set.delete(String(id));
-  saveHiddenSet(set);
-  renderHiddenPanel();
-  // Best-effort delete from DB (creator-only on backend)
-  try {
-    const r = await fetch("/api/jobs/delete", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: String(id) })
-    });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data?.error || data?.message || r.statusText);
-    toast("Cleared", `Deleted job ${id}`);
-  } catch (e) {
-    toast("Cleared (local)", `Removed ${id} from hidden list. Server delete failed: ${e.message}`);
-  }
-  loadJobs();
-}
 function renderHiddenPanel() {
   const set = getHiddenSet();
   const container = document.getElementById("hiddenJobs");
@@ -248,7 +226,6 @@ function renderHiddenPanel() {
     <div class="job-line" style="padding:.5rem 0; border-bottom:1px solid #2a2f3a;">
       <div><code>${esc(id)}</code></div>
       <div class="job-actions">
-        <button class="danger" onclick="clearHiddenOne('${esc(id)}')">Clear</button>
         <button class="secondary" onclick="unhideJob('${esc(id)}')">Unhide</button>
       </div>
     </div>
@@ -260,17 +237,24 @@ function getLastEnqueue() {
 }
 
 let SITES = [];
-let PROGRESS = {}; // repo -> { done }
+
+async function readJsonOrText(r) {
+  const ct = (r.headers.get("content-type") || "").toLowerCase();
+  if (ct.includes("application/json")) {
+    try { return await r.json(); } catch { /* fall through */ }
+  }
+  const text = await r.text();
+  try { return JSON.parse(text); } catch { return { message: text }; }
+}
 
 async function loadSites() {
   const status = document.getElementById("sitesStatus");
   status.textContent = "Loading…";
   try {
     const r = await fetch("/api/sites");
-    const data = await r.json();
-    if (!r.ok) throw new Error(data?.message || r.statusText);
+    const data = await readJsonOrText(r);
+    if (!r.ok) throw new Error(data?.message || data?.error || r.statusText);
     SITES = data.sites || [];
-    await loadProgress();
     renderSites();
     renderCoreTargets();
     status.textContent = `Loaded ${SITES.length} site(s).`;
@@ -278,23 +262,6 @@ async function loadSites() {
     status.textContent = `Error: ${e.message || e}`;
     toast("Sites error", status.textContent);
   }
-}
-
-async function loadProgress() {
-  PROGRESS = {};
-  const sites = SITES || [];
-  await Promise.all(sites.map(async (s) => {
-    const repo = s.repo;
-    if (!repo) return;
-    try {
-      const r = await fetch(`/api/jobs/progress?repo=${encodeURIComponent(repo)}`);
-      if (!r.ok) throw new Error("progress fetch failed");
-      const data = await r.json();
-      if (data?.ok) PROGRESS[repo] = { done: Number(data.done || 0) };
-    } catch {
-      // non-fatal; leave progress undefined
-    }
-  }));
 }
 
 function renderSites() {
@@ -305,18 +272,12 @@ function renderSites() {
   }
   container.innerHTML = SITES.map(s => {
     const repo = s.repo;
-    const done = (PROGRESS[repo]?.done ?? 0);
-    const target = (s.target_pages === null || s.target_pages === undefined || isNaN(Number(s.target_pages)))
-      ? null
-      : Number(s.target_pages);
-    const remaining = (target === null) ? null : Math.max(0, target - done);
     const adsEligible = !!(s.ads && s.ads.eligible);
     const provider = (s.ads && s.ads.provider) || "none";
     return `
       <div class="card site-card">
         <div><strong>${esc(s.name || repo)}</strong></div>
         <div class="muted small" style="margin-top:.25rem;">${esc(repo)}</div>
-        <div class="muted small" style="margin-top:.25rem;">Progress: <strong>${done}</strong>${target===null?"":" / <strong>"+target+"</strong>"}${target===null?"":" ("+remaining+" remaining)"}</div>
         <div class="divider"></div>
         <div class="row" style="justify-content:space-between;">
           <div class="small">
@@ -334,13 +295,6 @@ function renderSites() {
           </div>
         </div>
         <div class="divider"></div>
-        <div class="row" style="align-items:center; gap:.5rem; flex-wrap:wrap;">
-          <div class="small">Total pages:</div>
-          <input type="number" min="0" step="1" value="${target===null?"":target}" placeholder="(optional)" style="width:120px;" onchange="setTargetPages('${esc(repo)}', this.value)" />
-          <div class="small" style="opacity:.85;">Done: ${done}${target===null?"":` • Remaining: ${remaining}`}</div>
-          <button class="secondary" ${target===null || remaining===0?"disabled":""} onclick="queueRemaining('${esc(repo)}')">Queue remaining</button>
-        </div>
-        <div class="divider"></div>
         <div class="row">
           <button onclick="enqueue('${esc(repo)}', ${Number(s.default_pages || 5)})">Enqueue (${Number(s.default_pages || 5)})</button>
           <button class="secondary" onclick="enqueue('${esc(repo)}', 1)">Enqueue (1)</button>
@@ -348,49 +302,6 @@ function renderSites() {
       </div>
     `;
   }).join("");
-}
-
-async function setTargetPages(repo, val) {
-  let target_pages = null;
-  const trimmed = String(val ?? "").trim();
-  if (trimmed !== "") {
-    const n = Number(trimmed);
-    if (!Number.isFinite(n) || n < 0) {
-      toast("Target pages", "Please enter a non-negative number.");
-      return;
-    }
-    target_pages = Math.floor(n);
-  }
-
-  toast("Target pages", `Saving target for ${repo}…`);
-  try {
-    const r = await fetch("/api/sites/target", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repo, target_pages })
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data?.message || r.statusText);
-    toast("Target pages", `Saved target_pages=${target_pages ?? "(none)"}`);
-    await loadSites();
-  } catch (e) {
-    toast("Target pages", e.message || String(e));
-  }
-}
-
-async function queueRemaining(repo) {
-  const target = (SITES.find(s => s.repo === repo)?.target_pages ?? null);
-  const done = (PROGRESS[repo]?.done ?? 0);
-  const remaining = (target === null || target === undefined) ? null : Math.max(0, Number(target) - done);
-  if (remaining === null) {
-    toast("Queue remaining", "Set a target pages value first.");
-    return;
-  }
-  if (remaining <= 0) {
-    toast("Queue remaining", "Nothing remaining to queue.");
-    return;
-  }
-  await enqueue(repo, remaining);
 }
 
 async function setAdsEligible(repo, eligibleVal) {
