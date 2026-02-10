@@ -43,24 +43,28 @@
       border-radius: 6px;
       overflow-x: auto;
     }
+  
+    .badge{
+      display:inline-block;
+      padding:.15rem .5rem;
+      border-radius:999px;
+      font-size:.75rem;
+      border:1px solid #2a2f3a;
+      background:#151922;
+      color:#9aa4b2;
+      margin-left:.5rem;
+    }
+    .badge.reused{ border-color:#d6b36a; color:#ffd58a; }
+    .badge.new{ border-color:#4f7cff; color:#9fb7ff; }
 
-    .badge {
-      display: inline-block;
-      padding: .15rem .5rem;
-      border-radius: 999px;
-      font-size: .75rem;
-      border: 1px solid #2a2f3a;
-      background: #151922;
-      color: #9aa4b2;
-      margin-left: .5rem;
-      vertical-align: middle;
+    .highlight{
+      outline:2px solid rgba(79,124,255,.55);
+      box-shadow:0 0 0 4px rgba(79,124,255,.12);
     }
-    .badge.reused { border-color: #d6b36a; color: #ffd58a; }
-    .badge.new { border-color: #4f7cff; color: #9fb7ff; }
-    .highlight {
-      outline: 2px solid rgba(79,124,255,.55);
-      box-shadow: 0 0 0 4px rgba(79,124,255,.12);
-    }
+
+    .danger{ background:#b33a3a; }
+    .danger:hover{ opacity:.9; }
+    .secondary{ background:#2f3645; }
 
   </style>
 </head>
@@ -79,6 +83,34 @@
   <h2 style="margin-top:0;">Sites</h2>
   <div id="sites">Loading sites…</div>
 
+  <h2>Site Builder</h2>
+  <div class="site ${isLast ? "highlight" : ""}">
+    <strong>Configure a site from a niche</strong>
+    <div class="meta">This writes <code>data/site.yaml</code> into an existing site repo (created from your factory template).</div>
+    <div style="display:flex; gap:.75rem; flex-wrap:wrap; margin-top:.75rem; align-items:center;">
+      <input id="cfgRepo" placeholder="owner/repo (existing site repo)" style="min-width:260px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
+      <input id="cfgTitle" placeholder="Site title (niche name)" style="min-width:220px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
+      <input id="cfgDesc" placeholder="Meta description (optional)" style="min-width:320px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
+      <input id="cfgTheme" placeholder="Theme pack (e.g. calm-paper)" style="min-width:220px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
+      <button onclick="configureSite()">Write data/site.yaml</button>
+    </div>
+    <div class="meta" id="cfgNote" style="margin-top:.5rem;"></div>
+  </div>
+
+  <div class="site" style="margin-top:1rem;">
+    <strong>Import pages into a site plan</strong>
+    <div class="meta">Paste titles (one per line) or upload a .txt. This appends to <code>data/plan.yaml</code> with <code>status: todo</code>.</div>
+    <div style="display:flex; gap:.75rem; flex-wrap:wrap; margin-top:.75rem; align-items:center;">
+      <input id="planRepo" placeholder="owner/repo (site repo)" style="min-width:260px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
+      <input id="planHub" placeholder="hub (optional)" style="min-width:160px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
+      <input id="planType" placeholder="page_type (optional)" style="min-width:160px; padding:.45rem .6rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" />
+      <input id="planFile" type="file" accept=".txt" />
+      <button onclick="importPlan()">Import titles</button>
+    </div>
+    <textarea id="planTitles" placeholder="Paste page titles here (one per line)..." style="width:100%; min-height:140px; margin-top:.75rem; padding:.6rem; border-radius:10px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;"></textarea>
+    <div class="meta" id="planNote" style="margin-top:.5rem;"></div>
+  </div>
+
   <h2>Queue & History</h2>
   <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center; margin-bottom: .75rem;">
     <label class="meta">Status:
@@ -95,6 +127,19 @@
       <input id="filterRepo" placeholder="owner/repo" style="padding:.4rem .5rem; border-radius:6px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6;" onkeydown="if(event.key==='Enter'){loadJobs()}" />
     </label>
     <button onclick="loadJobs()">Refresh</button>
+    <button onclick="toggleHidden()" class="secondary" id="btnHidden">Hidden (0)</button>
+  </div>
+
+  <div id="hiddenPanel" style="display:none; margin: .5rem 0 1rem; border:1px solid #2a2f3a; border-radius:10px; padding: .75rem; background:#0b0d12;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
+      <strong>Hidden jobs</strong>
+      <div style="display:flex; gap:.5rem; align-items:center;">
+        <button onclick="clearHidden()" class="danger">Clear all hidden</button>
+        <button onclick="toggleHidden()" class="secondary">Close</button>
+      </div>
+    </div>
+    <div class="meta" style="margin-top:.25rem;">Hidden jobs are stored in your browser (local to this device).</div>
+    <div id="hiddenJobs" style="margin-top:.75rem;">No hidden jobs.</div>
   </div>
 
   <div id="jobs">Loading jobs…</div>
@@ -102,6 +147,125 @@
   <script>
     function esc(s){
       return String(s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+    }
+
+    function getHiddenSet() {
+      try {
+        const arr = JSON.parse(localStorage.getItem("hidden_jobs") || "[]");
+        return new Set(Array.isArray(arr) ? arr.map(String) : []);
+      } catch(e) { return new Set(); }
+    }
+    function setHiddenSet(set) {
+      localStorage.setItem("hidden_jobs", JSON.stringify(Array.from(set)));
+      updateHiddenCount();
+    }
+    function updateHiddenCount() {
+      const n = getHiddenSet().size;
+      const btn = document.getElementById("btnHidden");
+      if (btn) btn.textContent = `Hidden (${n})`;
+    }
+    function toggleHidden() {
+      const panel = document.getElementById("hiddenPanel");
+      if (!panel) return;
+      const show = panel.style.display === "none";
+      panel.style.display = show ? "block" : "none";
+      if (show) renderHiddenPanel();
+    }
+    function hideJob(id) {
+      const set = getHiddenSet();
+      set.add(String(id));
+      setHiddenSet(set);
+      renderHiddenPanel();
+      loadJobs();
+    }
+    function unhideJob(id) {
+      const set = getHiddenSet();
+      set.delete(String(id));
+      setHiddenSet(set);
+      renderHiddenPanel();
+      loadJobs();
+    }
+    function clearHidden() {
+      localStorage.removeItem("hidden_jobs");
+      updateHiddenCount();
+      renderHiddenPanel();
+      loadJobs();
+    }
+    function renderHiddenPanel() {
+      const container = document.getElementById("hiddenJobs");
+      if (!container) return;
+      const set = getHiddenSet();
+      if (set.size === 0) {
+        container.innerHTML = "No hidden jobs.";
+        return;
+      }
+      const ids = Array.from(set).slice().reverse();
+      container.innerHTML = ids.map(id => `
+        <div class="site" style="margin: .5rem 0; padding:.6rem;">
+          <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; align-items:center;">
+            <div>
+              <strong>${esc(id)}</strong>
+              <div class="meta">hidden</div>
+            </div>
+            <div style="display:flex; gap:.5rem;">
+              <button class="secondary" onclick="unhideJob('${id}')">Unhide</button>
+            </div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function configureSite() {
+      const repo = document.getElementById("cfgRepo").value.trim();
+      const title = document.getElementById("cfgTitle").value.trim();
+      const description = document.getElementById("cfgDesc").value.trim();
+      const theme_pack = document.getElementById("cfgTheme").value.trim();
+      const note = document.getElementById("cfgNote");
+      note.textContent = "";
+      if (!repo || !repo.includes("/")) { note.textContent = "Enter repo as owner/repo"; return; }
+      if (!title) { note.textContent = "Enter a site title"; return; }
+
+      const r = await fetch("/api/site/configure", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ repo, title, description, theme_pack })
+      });
+
+      const data = await r.json().catch(()=>({}));
+      if (!r.ok) {
+        note.textContent = data.message || data.error || ("Error " + r.status);
+        return;
+      }
+      note.textContent = `Wrote data/site.yaml to ${repo}.`;
+    }
+
+    async function importPlan() {
+      const repo = document.getElementById("planRepo").value.trim();
+      const hub = document.getElementById("planHub").value.trim();
+      const page_type = document.getElementById("planType").value.trim();
+      const note = document.getElementById("planNote");
+      note.textContent = "";
+      if (!repo || !repo.includes("/")) { note.textContent = "Enter repo as owner/repo"; return; }
+
+      const fileEl = document.getElementById("planFile");
+      let titlesText = document.getElementById("planTitles").value || "";
+      if (fileEl && fileEl.files && fileEl.files[0]) {
+        titlesText = await fileEl.files[0].text();
+      }
+      const titles = String(titlesText).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+      if (titles.length === 0) { note.textContent = "Paste titles or upload a .txt"; return; }
+
+      const r = await fetch("/api/plan/import", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ repo, titles, hub: hub || undefined, page_type: page_type || undefined })
+      });
+      const data = await r.json().catch(()=>({}));
+      if (!r.ok) {
+        note.textContent = data.message || data.error || ("Error " + r.status);
+        return;
+      }
+      note.textContent = `Imported ${data.added || 0} titles into data/plan.yaml for ${repo}.`;
     }
 
     async function loadSites() {
@@ -150,17 +314,7 @@
       if (data.dry_run) {
         alert(`Dry-run OK. Would enqueue job for ${repo}.`);
       } else {
-        const jobId = data.job?.id || data.job_id;
-        const reused = !!data.reused;
-
-        // store last action so Queue & History can mark the row
-        sessionStorage.setItem("last_enqueue", JSON.stringify({
-          jobId,
-          reused,
-          ts: Date.now()
-        }));
-
-        alert(reused ? `Reused existing job: ${jobId}` : `Enqueued job: ${jobId}`);
+        alert(data.reused ? `Reused existing job: ${data.job?.id}` : `Enqueued job: ${data.job_id}`);
       }
       loadJobs();
     }
@@ -195,11 +349,6 @@
       const data = await r.json().catch(() => ({jobs:[]}));
       const jobs = data.jobs || [];
 
-      let last = null;
-      try { last = JSON.parse(sessionStorage.getItem("last_enqueue") || "null"); } catch(e) {}
-      const lastJobId = last?.jobId;
-      const lastIsFresh = last?.ts && (Date.now() - last.ts) < (2 * 60 * 1000); // 2 minutes
-
       if (!jobs.length) {
         container.innerHTML = `<div class="meta">No jobs.</div>`;
         return;
@@ -207,11 +356,12 @@
 
       const rows = jobs.map(j => {
         const isLast = lastIsFresh && lastJobId && String(j.id) === String(lastJobId);
-        const badge = isLast ? `<span class="badge ${last?.reused ? "reused" : "new"}">${last?.reused ? "REUSED" : "ENQUEUED"}</span>` : "";
+        const badge = isLast ? `<span class="badge ${last && last.reused ? 'reused' : 'new'}">${last && last.reused ? 'REUSED' : 'ENQUEUED'}</span>` : "";
+
         const runLink = j.gh_run_url ? `<a href="${esc(j.gh_run_url)}" target="_blank" rel="noopener" style="color:#4f7cff;">run</a>` : '';
         const err = j.error ? `<div class="meta" style="color:#ff8a8a;">${esc(j.error)}</div>` : '';
         return `
-          <div class="site ${isLast ? "highlight" : ""}">
+          <div class="site">
             <div style="display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
               <div>
                 <strong>${esc(j.site_name || j.repo)}${badge}</strong>
@@ -220,6 +370,7 @@
                 ${err}
               </div>
               <div style="display:flex; gap:.5rem; align-items:center;">
+                <button class="secondary" onclick="hideJob(${JSON.stringify(j.id)})">Hide</button>
                 <button onclick="workerTick()">tick</button>
               </div>
             </div>
@@ -230,6 +381,7 @@
       container.innerHTML = rows;
     }
 
+    updateHiddenCount();
     loadSites();
     loadJobs();
   </script>
