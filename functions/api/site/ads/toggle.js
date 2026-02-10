@@ -1,4 +1,4 @@
-import YAML from "yaml";
+import { parseYAML, stringifyYAML } from "../../../_lib/yaml_lite.js";
 import { ghFetch } from "../../../_lib/github_app.js";
 import { json } from "../../../_lib/d1.js";
 
@@ -59,12 +59,12 @@ export async function onRequestPost({ request, env }) {
     const targetPath = "data/site.yaml";
     const { sha, content } = await getFile(env, repo, targetPath);
 
-    const doc = ensureAdsShape(YAML.parse(content) || {});
+    const doc = ensureAdsShape(parseYAML(content) || {});
     // Keep ads config under doc.ads to match your contract.
     if (eligible !== null) doc.ads.eligible = eligible;
     if (provider !== null) doc.ads.provider = provider;
 
-    const out = YAML.stringify(doc);
+    const out = stringifyYAML(doc) + "\n";
     await putFile(env, repo, targetPath, out, `chore: update ads settings (${repo})`, sha);
 
     return json({ ok: true, repo, ads: doc.ads });

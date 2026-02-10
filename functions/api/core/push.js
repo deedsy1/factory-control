@@ -1,4 +1,4 @@
-import YAML from "yaml";
+import { parseYAML, stringifyYAML } from "../../_lib/yaml_lite.js";
 import { ghFetch } from "../../_lib/github_app.js";
 import { json } from "../../_lib/d1.js";
 
@@ -56,7 +56,7 @@ async function loadSitesList(env) {
   const sitesPath = env.SITES_PATH || "sites.yaml";
   if (!sitesRepo) throw new Error("SITES_REPO not set");
   const { content } = await getFile(env, sitesRepo, sitesPath);
-  const doc = YAML.parse(content) || {};
+  const doc = parseYAML(content) || {};
   const sites = Array.isArray(doc.sites) ? doc.sites : [];
   return sites;
 }
@@ -71,7 +71,7 @@ export async function onRequestPost({ request, env }) {
     const patchRepo = env.SITES_REPO; // by default store patch in factory-control repo (same as sites.yaml)
     const patchPath = env.CORE_PATCH_PATH || "core/site_patch.yaml";
     const patchFile = await getFile(env, patchRepo, patchPath);
-    const patch = YAML.parse(patchFile.content) || {};
+    const patch = parseYAML(patchFile.content) || {};
 
     const sites = await loadSitesList(env);
 
@@ -101,9 +101,9 @@ export async function onRequestPost({ request, env }) {
       try {
         const targetPath = "data/site.yaml";
         const existing = await getFile(env, repo, targetPath);
-        const doc = YAML.parse(existing.content) || {};
+        const doc = parseYAML(existing.content) || {};
         const merged = deepMerge(doc, patch);
-        const out = YAML.stringify(merged);
+        const out = stringifyYAML(merged) + "\n";
         await putFile(env, repo, targetPath, out, msg, existing.sha);
         updated += 1;
         results.push({ repo, ok: true });
